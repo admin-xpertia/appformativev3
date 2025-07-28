@@ -5,7 +5,8 @@
   "main": "src/index.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "db:seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' -r dotenv/config packages/database/seed.ts"
+    "db:schema": "ts-node --compiler-options '{\"module\":\"commonjs\"}' -r dotenv/config packages/database/createSchema.ts",
+    "db:seed:all": "pnpm run db:schema && ts-node --compiler-options '{\"module\":\"commonjs\"}' -r dotenv/config packages/database/seedAll.ts"
   },
   "keywords": [],
   "author": "",
