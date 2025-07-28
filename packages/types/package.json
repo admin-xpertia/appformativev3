@@ -1,0 +1,12 @@
+{
+  "name": "@espacio-formativo/types",
+  "version": "1.0.0",
+  "description": "Tipos y interfaces compartidas para el Espacio Formativo Adaptativo",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

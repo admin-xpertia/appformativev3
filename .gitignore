@@ -1,0 +1,25 @@
+# Dependencies
+/node_modules
+apps/**/node_modules
+
+# Build outputs
+/apps/frontend/.next/
+/apps/backend/dist/
+/out/
+/build
+
+# Env files
+.env
+apps/*/.env
+
+# Vercel
+.vercel
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# IDE config
+.vscode/
