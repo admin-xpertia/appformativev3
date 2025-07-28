@@ -1,13 +1,24 @@
 {
   "name": "espacio-formativo-app",
   "version": "1.0.0",
-  "description": "",
+  "description": "Plataforma de entrenamiento adaptativo para ejecutivos de atención al cliente.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "db:seed": "ts-node --compiler-options '{\"module\":\"commonjs\"}' -r dotenv/config packages/database/seed.ts"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "langgraph",
+    "typescript",
+    "surrealdb",
+    "ia-training"
+  ],
+  "author": "Ignacio Zambrano",
   "license": "ISC",
-  "packageManager": "pnpm@10.13.1"
+  "packageManager": "pnpm@10.13.1",
+  "dependencies": {
+    "@types/node": "^24.1.0",
+    "dotenv": "^17.2.1",
+    "ts-node": "^10.9.2"
+  }
 }

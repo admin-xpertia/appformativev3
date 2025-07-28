@@ -1,52 +1,61 @@
 import 'dotenv/config';
-
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import { CaseSlug } from '@espacio-formativo/types'; // ¡Importando desde nuestro paquete compartido!
-import './services/database.service';
+import { connectToDB, getAllCases } from './services/database.service';
 
 const fastify = Fastify({
-  logger: true // Activa logs para ver qué está pasando
+  logger: true,              // Activa logs detallados
 });
 
-// Registra el plugin de CORS para permitir peticiones desde el frontend
+// Habilitar CORS para todas las rutas
 fastify.register(cors, {
-  origin: "*", // En producción, esto debería ser la URL de tu frontend
+  origin: '*',               // En producción restringe a tu frontend
 });
 
-// Nuestra primera ruta de API
-// Debajo de la ruta /api/hello, añade esto:
+// --- Rutas --- //
 
-// Endpoint para obtener todos los casos de simulación
+// Obtener todos los casos
 fastify.get('/api/cases', async (request, reply) => {
-  // En el futuro, esto vendrá de SurrealDB. Por ahora, es un mock.
-  const mockCases = [
-    { id: "sobreconsumo", title: "Sobreconsumo", currentLevel: "plata", attempts: "2 de 3", progress: 67, available: true, lastAttempt: "15 Nov 2024" },
-    { id: "la-boleta", title: "La Boleta", currentLevel: "bronce", attempts: "1 de 3", progress: 33, available: true, lastAttempt: "12 Nov 2024" },
-    // ... puedes añadir el resto de los casos aquí
-  ];
-  return mockCases;
+  fastify.log.info('GET /api/cases');
+  try {
+    const cases = await getAllCases();
+    return cases;
+  } catch (err) {
+    fastify.log.error('Error al obtener casos:', err);
+    return reply.status(500).send({ error: 'No se pudieron obtener los casos' });
+  }
 });
 
-// Endpoint para obtener el progreso del usuario en las competencias
-fastify.get('/api/user/:userId/progress', async (request, reply) => {
-  // El :userId lo hará dinámico en el futuro. Por ahora, devolvemos siempre lo mismo.
+// Obtener progreso de un usuario
+fastify.get<{
+  Params: { userId: string };
+}>('/api/user/:userId/progress', async (request, reply) => {
+  const { userId } = request.params;
+  fastify.log.info(`GET /api/user/${userId}/progress`);
+  // Datos simulados por ahora
   const mockCompetencyProgress = [
-    { competency: "enfoque-cliente", progress: 75, level: "plata" },
-    { competency: "regulaciones", progress: 45, level: "bronce" },
-    { competency: "resolucion-problemas", progress: 90, level: "oro" },
-    { competency: "comunicacion-efectiva", progress: 60, level: "plata" },
-    { competency: "integridad", progress: 85, level: "oro" },
+    { competency: 'enfoque-cliente',       progress: 75, level: 'plata' },
+    { competency: 'regulaciones',           progress: 45, level: 'bronce' },
+    { competency: 'resolucion-problemas',   progress: 90, level: 'oro' },
+    { competency: 'comunicacion-efectiva',  progress: 60, level: 'plata' },
+    { competency: 'integridad',             progress: 85, level: 'oro' },
   ];
   return mockCompetencyProgress;
 });
 
-// Función para iniciar el servidor
+// --- Inicio del servidor --- //
 const start = async () => {
   try {
-    await fastify.listen({ port: 3001 }); // El backend correrá en el puerto 3001
+    // 1) Conectarse + autenticar (credenciales en connectToDB)
+    await connectToDB();
+    fastify.log.info('✅ Base de datos conectada y autenticada');
+
+    // 2) Arrancar Fastify
+    const port = Number(process.env.PORT) || 3001;
+    await fastify.listen({ port, host: '0.0.0.0' });
+    fastify.log.info(`🚀 Servidor listo en puerto ${port}`);
   } catch (err) {
-    fastify.log.error(err);
+    fastify.log.error('Error al arrancar el servidor:', err);
     process.exit(1);
   }
 };

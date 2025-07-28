@@ -5,10 +5,8 @@ import { CompetencyProgress } from "@/components/competency-progress"
 import { JourneyCard } from "@/components/journey-card"
 import { SuggestedChallenge } from "@/components/suggested-challenge"
 import { getCases, getUserProgress } from "@/services/api.service"
-// ¡Importamos los tipos correctos desde nuestro paquete compartido!
 import type { ICase, ICompetencyProgress } from "../../../../packages/types"
 
-// Este diccionario para los nombres se mantiene igual
 const competencyNames: { [key: string]: string } = {
   "enfoque-cliente": "Enfoque en el Cliente y Empatía",
   "regulaciones": "Conocimiento y Aplicación de Regulaciones",
@@ -18,7 +16,6 @@ const competencyNames: { [key: string]: string } = {
 }
 
 export function Dashboard() {
-  // Ahora los estados usan los tipos importados, eliminando los locales
   const [cases, setCases] = useState<ICase[]>([]);
   const [competencies, setCompetencies] = useState<ICompetencyProgress[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -31,7 +28,7 @@ export function Dashboard() {
           getUserProgress("user123")
         ]);
         setCases(casesData);
-        setCompetencies(progressData); // ¡Ahora los tipos coinciden perfectamente!
+        setCompetencies(progressData);
       } catch (error) {
         console.error("Error al cargar los datos del dashboard:", error);
       } finally {
@@ -43,27 +40,41 @@ export function Dashboard() {
   }, []);
 
   if (isLoading) {
-    return <div>Cargando tu espacio de maestría...</div>;
+    return <div className="p-12 text-center">Cargando tu espacio de maestría...</div>;
   }
 
-  const suggestedCase = cases.find((c) => c.progress < 100 && c.available) || cases[0];
+  if (!cases || cases.length === 0) {
+    return <div className="p-12 text-center">No hay casos de simulación disponibles.</div>;
+  }
+
+  // --- INICIO DE LA CORRECCIÓN 1 ---
+  // Hacemos la búsqueda del caso sugerido más segura, asegurándonos
+  // de que las propiedades `progress` y `available` existan antes de usarlas.
+  const suggestedCase = cases.find((c) => (c.progress ?? 0) < 100 && c.available) || cases[0];
+  // --- FIN DE LA CORRECCIÓN 1 ---
 
   const onStartSimulation = (caseId: string) => {
     console.log("Iniciando simulación para el caso:", caseId);
   };
 
   return (
-    // El JSX no necesita cambios, ya que las propiedades de los objetos de datos
-    // (como 'progress', 'level', 'title') siguen siendo las mismas.
     <div className="space-y-12 animate-fade-in">
        <section className="mb-12">
-         <SuggestedChallenge case={suggestedCase} onStart={() => onStartSimulation(suggestedCase.id)} />
+         {/* * --- NOTA IMPORTANTE PARA LA CORRECCIÓN 2 ---
+           * Los errores de tipo restantes ocurren porque `suggestedCase` (que es de tipo ICase)
+           * no coincide exactamente con las props que espera el componente `SuggestedChallenge`.
+           * La solución ideal es modificar las props de `SuggestedChallenge` para que acepte `ICase`.
+           * Como solución temporal aquí, nos aseguramos de no pasarle un valor nulo.
+           */}
+         {suggestedCase && (
+           <SuggestedChallenge case={suggestedCase} onStart={() => onStartSimulation(suggestedCase.id)} />
+         )}
        </section>
 
        <section>
          <h2 className="text-3xl font-semibold text-gray-900 mb-8 tracking-tight">Tu Maestría</h2>
          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-           {competencies.map((competency, index) => (
+           {competencies.map((competency) => (
              <div key={competency.competency}>
                <CompetencyProgress
                  name={competencyNames[competency.competency]}
@@ -82,6 +93,11 @@ export function Dashboard() {
              .filter((c) => c.id !== suggestedCase.id)
              .map((case_) => (
                <div key={case_.id} className="flex-shrink-0 w-80">
+                 {/*
+                   * --- NOTA IMPORTANTE PARA LA CORRECCIÓN 3 ---
+                   * El mismo problema ocurre aquí con `JourneyCard`. La solución a largo plazo
+                   * es actualizar las props de `JourneyCard` para que sean compatibles con `ICase`.
+                   */}
                  <JourneyCard case={case_} onStart={() => onStartSimulation(case_.id)} />
                </div>
              ))}

@@ -3,35 +3,36 @@
 import { Play, Trophy, Medal, Award, Crown, Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+// --- INICIO DE LA CORRECCIÓN 1: Importar tipos centralizados ---
+import type { ICase } from "../../../../packages/types"
+import { CompetencyLevel } from "../../../../packages/types"
+// --- FIN DE LA CORRECCIÓN 1 ---
 
 interface JourneyCardProps {
-  case: {
-    id: string
-    title: string
-    currentLevel: string
-    attempts: string
-    progress: number
-    available: boolean
-    lastAttempt?: string
-  }
+  // --- INICIO DE LA CORRECCIÓN 2: Usar la interfaz ICase ---
+  case: ICase
+  // --- FIN DE LA CORRECCIÓN 2 ---
   onStart: () => void
 }
 
-const levelIcons = {
-  bronce: Medal,
-  plata: Trophy,
-  oro: Award,
-  platino: Crown,
+// --- INICIO DE LA CORRECCIÓN 3: Hacer los diccionarios más robustos ---
+// Mapeamos nuestros Enums a los componentes de íconos y clases de CSS.
+const levelIcons: Record<CompetencyLevel, React.ElementType> = {
+  [CompetencyLevel.BRONCE]: Medal,
+  [CompetencyLevel.PLATA]: Trophy,
+  [CompetencyLevel.ORO]: Award,
+  [CompetencyLevel.PLATINO]: Crown,
 }
 
-const levelColors = {
-  bronce: "bg-gradient-to-r from-amber-600 to-amber-500 text-white",
-  plata: "bg-gradient-to-r from-gray-400 to-gray-300 text-white",
-  oro: "bg-gradient-to-r from-yellow-500 to-yellow-400 text-gray-900",
-  platino: "bg-gradient-to-r from-gray-300 to-gray-200 text-gray-900",
+const levelColors: Record<CompetencyLevel, string> = {
+  [CompetencyLevel.BRONCE]: "bg-gradient-to-r from-amber-600 to-amber-500 text-white",
+  [CompetencyLevel.PLATA]: "bg-gradient-to-r from-gray-400 to-gray-300 text-white",
+  [CompetencyLevel.ORO]: "bg-gradient-to-r from-yellow-500 to-yellow-400 text-gray-900",
+  [CompetencyLevel.PLATINO]: "bg-gradient-to-r from-gray-300 to-gray-200 text-gray-900",
 }
+// --- FIN DE LA CORRECCIÓN 3 ---
 
-const caseIcons = {
+const caseIcons: { [key: string]: string } = {
   sobreconsumo: "⚡",
   "la-boleta": "📄",
   "termino-medio": "⏱️",
@@ -40,8 +41,15 @@ const caseIcons = {
 }
 
 export function JourneyCard({ case: caseData, onStart }: JourneyCardProps) {
-  const LevelIcon = levelIcons[caseData.currentLevel as keyof typeof levelIcons]
-  const caseIcon = caseIcons[caseData.id as keyof typeof caseIcons] || "📋"
+  // --- INICIO DE LA CORRECCIÓN 4: Manejo seguro de valores opcionales ---
+  const currentLevel = caseData.currentLevel ?? CompetencyLevel.BRONCE
+  const progress = caseData.progress ?? 0
+  const attempts = caseData.attempts ?? "0 de 3"
+  const isAvailable = caseData.available ?? false
+
+  const LevelIcon = levelIcons[currentLevel]
+  const caseIcon = caseIcons[caseData.id] || "📋"
+  // --- FIN DE LA CORRECCIÓN 4 ---
 
   return (
     <div className="journey-card group">
@@ -50,12 +58,12 @@ export function JourneyCard({ case: caseData, onStart }: JourneyCardProps) {
           <div className="text-4xl group-hover:scale-110 transition-transform duration-300">{caseIcon}</div>
           <div>
             <h3 className="font-semibold text-xl text-gray-900 mb-1">{caseData.title}</h3>
-            <p className="text-sm text-gray-600">{caseData.attempts}</p>
+            <p className="text-sm text-gray-600">{attempts}</p>
           </div>
         </div>
-        <Badge className={`${levelColors[caseData.currentLevel as keyof typeof levelColors]} text-xs`}>
-          <LevelIcon className="w-3 h-3 mr-1" />
-          {caseData.currentLevel}
+        <Badge className={`${levelColors[currentLevel]} text-xs`}>
+          {LevelIcon && <LevelIcon className="w-3 h-3 mr-1" />}
+          {currentLevel}
         </Badge>
       </div>
 
@@ -63,12 +71,12 @@ export function JourneyCard({ case: caseData, onStart }: JourneyCardProps) {
         <div>
           <div className="flex justify-between text-sm mb-2">
             <span className="text-gray-600">Progreso</span>
-            <span className="font-medium text-gray-900">{caseData.progress}%</span>
+            <span className="font-medium text-gray-900">{progress}%</span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-2">
             <div
               className="bg-gradient-to-r from-mint-dark to-mint h-2 rounded-full transition-all duration-500"
-              style={{ width: `${caseData.progress}%` }}
+              style={{ width: `${progress}%` }}
             />
           </div>
         </div>
@@ -84,7 +92,7 @@ export function JourneyCard({ case: caseData, onStart }: JourneyCardProps) {
       <Button
         className="w-full mt-6 button-secondary group-hover:bg-mint-dark group-hover:text-white transition-all duration-300"
         onClick={onStart}
-        disabled={!caseData.available}
+        disabled={!isAvailable}
       >
         <Play className="w-4 h-4 mr-2" />
         Iniciar Viaje

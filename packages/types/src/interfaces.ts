@@ -2,23 +2,31 @@ import { CaseSlug, CompetencySlug, CompetencyLevel } from "./enums";
 
 /**
  * Representa la estructura de un caso de simulación individual.
- * ESTA ES LA INTERFAZ QUE FALTABA.
  */
 export interface ICase {
+  // --- CORRECCIÓN AÑADIDA ---
+  // Satisface el requisito de la librería de base de datos
+  [key: string]: any; 
+  // --- FIN DE LA CORRECCIÓN ---
+
   id: CaseSlug;
+  slug: string; // Añadido para consistencia con los datos de siembra
   title: string;
-  currentLevel: CompetencyLevel;
-  attempts: string;
-  progress: number;
-  available: boolean;
+  currentLevel?: CompetencyLevel;
+  attempts?: string;
+  progress?: number;
+  available?: boolean;
   lastAttempt?: string;
 }
 
 /**
  * Representa el progreso del usuario en UNA competencia específica.
- * ESTA ES LA INTERFAZ CORREGIDA para el progreso.
  */
 export interface ICompetencyProgress {
+  // --- CORRECCIÓN AÑADIDA ---
+  [key: string]: any; 
+  // --- FIN DE LA CORRECCIÓN ---
+
   competency: CompetencySlug;
   progress: number;
   level: CompetencyLevel;

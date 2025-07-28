@@ -2,20 +2,18 @@
 
 import { Play, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
+// --- INICIO DE LA CORRECCIÓN 1: Importar el tipo centralizado ---
+import type { ICase } from "../../../../packages/types" // Importamos nuestra interfaz ICase
+// --- FIN DE LA CORRECCIÓN 1 ---
 
 interface SuggestedChallengeProps {
-  case: {
-    id: string
-    title: string
-    currentLevel: string
-    attempts: string
-    progress: number
-    available: boolean
-  }
+  // --- INICIO DE LA CORRECCIÓN 2: Usar el tipo ICase ---
+  case: ICase // La prop 'case' ahora debe ser del tipo ICase
+  // --- FIN DE LA CORRECCIÓN 2 ---
   onStart: () => void
 }
 
-const caseDescriptions = {
+const caseDescriptions: { [key: string]: string } = {
   sobreconsumo: "Navega una conversación compleja sobre facturación anómala",
   "la-boleta": "Guía a un cliente a través de los conceptos de su factura",
   "termino-medio": "Maneja una situación de término de contrato",
@@ -47,12 +45,15 @@ export function SuggestedChallenge({ case: caseData, onStart }: SuggestedChallen
             <p className="text-xl text-gray-700 mb-8 leading-relaxed">{description}</p>
 
             <div className="flex items-center gap-6 mb-8">
+              {/* --- INICIO DE LA CORRECCIÓN 3: Manejo de valores opcionales --- */}
+              {/* Usamos el operador '??' para proveer un valor por defecto si la propiedad no existe. */}
               <div className="text-sm text-gray-600">
-                <span className="text-gray-900 font-medium">Nivel actual:</span> {caseData.currentLevel}
+                <span className="text-gray-900 font-medium">Nivel actual:</span> {caseData.currentLevel ?? 'N/A'}
               </div>
               <div className="text-sm text-gray-600">
-                <span className="text-gray-900 font-medium">Progreso:</span> {caseData.progress}%
+                <span className="text-gray-900 font-medium">Progreso:</span> {caseData.progress ?? 0}%
               </div>
+              {/* --- FIN DE LA CORRECCIÓN 3 --- */}
             </div>
           </div>
         </div>

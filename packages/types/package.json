@@ -4,7 +4,8 @@
   "description": "Tipos y interfaces compartidas para el Espacio Formativo Adaptativo",
   "main": "src/index.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "db:seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' -r dotenv/config packages/database/seed.ts"
   },
   "keywords": [],
   "author": "",

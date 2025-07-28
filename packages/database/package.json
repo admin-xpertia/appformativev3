@@ -1,0 +1,15 @@
+{
+  "name": "@espacio-formativo/database-tools",
+  "version": "1.0.0",
+  "description": "Herramientas de base de datos, como scripts de siembra.",
+  "main": "seed.ts",
+ 
+  "dependencies": {
+    "@espacio-formativo/types": "workspace:*",
+    "dotenv": "^17.2.1",
+    "surrealdb": "^1.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0"
+  }
+}

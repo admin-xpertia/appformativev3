@@ -1,0 +1,5 @@
+#V2
+SELECT * FROM case;
+DEFINE USER app_user ON ROOT PASSWORD 'xpertia.bot12';
+DEFINE USER app_user ON ROOT PASSWORD 'xpertia.bot123';
+DEFINE SCOPE account SESSION 24h;
