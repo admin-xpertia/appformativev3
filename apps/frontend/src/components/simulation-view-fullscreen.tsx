@@ -6,10 +6,11 @@ import { useState, useRef, useEffect } from "react"
 import { ArrowLeft, Send, Sidebar, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { mockConversation, mockCases } from "@/lib/mock-data"
+import type { ISimulationSession, IConversationMessage } from "../../../../packages/types"
 
+// ✅ PROPS ACTUALIZADAS: Ahora recibe una sesión completa
 interface SimulationViewProps {
-  caseId: string
+  session: ISimulationSession
   onComplete: () => void
   onBack: () => void
   onToggleSidebar: () => void
@@ -22,14 +23,30 @@ interface Message {
   timestamp: Date
 }
 
-export function SimulationView({ caseId, onComplete, onBack, onToggleSidebar, sidebarVisible }: SimulationViewProps) {
-  const [messages, setMessages] = useState<Message[]>(mockConversation)
+export function SimulationView({ session, onComplete, onBack, onToggleSidebar, sidebarVisible }: SimulationViewProps) {
+  // ✅ USAR HISTORIAL DE LA SESIÓN: Convertir IConversationMessage[] a Message[]
+  const initialMessages: Message[] = session.conversationHistory.map((msg: IConversationMessage) => ({
+    sender: msg.sender,
+    content: msg.content,
+    timestamp: new Date(msg.timestamp)
+  }))
+
+  // ✅ Si no hay historial, añadir mensaje de bienvenida
+  const [messages, setMessages] = useState<Message[]>(
+    initialMessages.length > 0 
+      ? initialMessages 
+      : [{
+          sender: "ai",
+          content: `¡Bienvenido a la simulación del caso "${session.case}"! Soy tu cliente virtual. Comencemos con la consulta...`,
+          timestamp: new Date()
+        }]
+  )
+  
   const [inputValue, setInputValue] = useState("")
   const [isTyping, setIsTyping] = useState(false)
   const [isInputFocused, setIsInputFocused] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const currentCase = mockCases.find((c) => c.id === caseId)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -52,7 +69,8 @@ export function SimulationView({ caseId, onComplete, onBack, onToggleSidebar, si
     setInputValue("")
     setIsTyping(true)
 
-    // Simulate AI response
+    // TODO: Aquí conectaremos con la API real del agente simulador
+    // Por ahora, respuesta mock
     setTimeout(() => {
       const aiResponses = [
         "Entiendo su preocupación. Permíteme revisar su cuenta para ayudarle mejor.",
@@ -72,8 +90,8 @@ export function SimulationView({ caseId, onComplete, onBack, onToggleSidebar, si
       setMessages((prev) => [...prev, aiMessage])
       setIsTyping(false)
 
-      // After 4 messages, complete simulation
-      if (messages.length >= 6) {
+      // After 6 messages, complete simulation
+      if (messages.length >= 8) {
         setTimeout(() => {
           onComplete()
         }, 2000)
@@ -99,6 +117,21 @@ export function SimulationView({ caseId, onComplete, onBack, onToggleSidebar, si
     adjustTextareaHeight()
   }, [inputValue])
 
+  // ✅ DETERMINAR ESTADO DE LA SESIÓN
+  const getSessionStatus = () => {
+    if (session.endTime) {
+      return session.passed ? "Completado ✅" : "Finalizado"
+    }
+    return "En Progreso"
+  }
+
+  const getStatusBadgeColor = () => {
+    if (session.endTime) {
+      return session.passed ? "bg-green-500" : "bg-gray-500"
+    }
+    return "bg-[#48B5A3]"
+  }
+
   return (
     <div
       className={`h-[calc(100vh-64px)] flex flex-col bg-white transition-all duration-300 ${
@@ -122,11 +155,23 @@ export function SimulationView({ caseId, onComplete, onBack, onToggleSidebar, si
             {sidebarVisible ? <X className="w-4 h-4" /> : <Sidebar className="w-4 h-4" />}
           </Button>
           <div>
-            <h2 className="text-lg font-semibold text-gray-800">{currentCase?.title}</h2>
-            <p className="text-sm text-gray-500">Cliente: Juan Pérez</p>
+            {/* ✅ USAR DATOS REALES DE LA SESIÓN */}
+            <h2 className="text-lg font-semibold text-gray-800">
+              Caso: {session.case} (Nivel {session.level})
+            </h2>
+            <p className="text-sm text-gray-500">
+              Sesión: {session.id} | Intento: {session.attemptNumber}
+            </p>
+            <p className="text-xs text-gray-400">
+              Iniciado: {new Date(session.startTime).toLocaleString()}
+            </p>
           </div>
         </div>
-        <Badge className="bg-[#48B5A3] text-white">En Progreso</Badge>
+        <div className="flex items-center gap-2">
+          <Badge className={`${getStatusBadgeColor()} text-white`}>
+            {getSessionStatus()}
+          </Badge>
+        </div>
       </div>
 
       {/* Messages Area */}
@@ -196,15 +241,15 @@ export function SimulationView({ caseId, onComplete, onBack, onToggleSidebar, si
                 placeholder="Escribe tu respuesta..."
                 className="w-full px-4 py-3 bg-gray-100 rounded-3xl border-none resize-none focus:outline-none focus:ring-2 focus:ring-[#48B5A3]/30 focus:bg-white transition-all duration-200 text-[15px] leading-relaxed"
                 style={{ minHeight: "44px", maxHeight: "120px" }}
-                disabled={isTyping}
+                disabled={isTyping || !!session.endTime} // ✅ Deshabilitar si la sesión ya terminó
                 rows={1}
               />
             </div>
             <Button
               onClick={handleSendMessage}
-              disabled={!inputValue.trim() || isTyping}
+              disabled={!inputValue.trim() || isTyping || !!session.endTime}
               className={`w-11 h-11 rounded-full p-0 transition-all duration-200 ${
-                inputValue.trim() && !isTyping
+                inputValue.trim() && !isTyping && !session.endTime
                   ? "bg-[#48B5A3] hover:bg-[#2ECC71] shadow-lg scale-100"
                   : "bg-gray-300 cursor-not-allowed scale-95"
               }`}

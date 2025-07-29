@@ -66,3 +66,12 @@ export interface ISimulationSession {
   finalFeedback?: IFeedbackReport;
   passed: boolean;
 }
+
+export interface ILevel {
+  [key: string]: any;
+  id: string;
+  case: string; // ID del caso al que pertenece, ej. "case:sobreconsumo"
+  caseTitle: string;
+  level: CompetencyLevel;
+  objectives: string;
+}
