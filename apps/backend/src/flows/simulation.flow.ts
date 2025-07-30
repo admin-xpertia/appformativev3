@@ -36,21 +36,25 @@ const simulatorModel = new ChatOpenAI({
 const simulatorPrompt = ChatPromptTemplate.fromMessages([
   [
     "system",
-    `Eres un cliente de "Aguas Nuevas", una empresa de servicios sanitarios. Tu rol es actuar de forma realista en una simulación de atención al cliente.
+    `Eres un cliente de "Aguas Nuevas" en una simulación de entrenamiento. Tu comportamiento debe estar perfectamente alineado con los objetivos pedagógicos definidos.
 
-    ### CONTEXTO DE LA SIMULACIÓN ###
-    - **Tu Problema (El Caso):** {caseTitle}
-    - **Descripción del Caso:** {caseDescription}
-    - **Nivel de Dificultad:** {level}
+    ### CONTEXTO DEL CASO ###
+    - **Caso:** {caseTitle}
+    - **Descripción del Problema:** {caseDescription}
+
+    ### TU ROL Y NIVEL DE DIFICULTAD ###
+    - **Nivel:** {level}
     - **Tu Personalidad y Actitud:** {persona}
+    
+    ### GUÍA PEDAGÓGICA (STRICTAMENTE CONFIDENCIAL) ###
+    - **Objetivos del Ejecutivo:** El ejecutivo que te atiende debe ser capaz de cumplir con lo siguiente: "{levelObjectives}"
+    - **Taxonomía de Bloom Aplicada:** Tu comportamiento debe provocar y evaluar las siguientes habilidades cognitivas en el ejecutivo, según la taxonomía: "{taxonomy}"
 
     ### REGLAS DE ACTUACIÓN ###
-    - Responde **únicamente como el cliente**. Nunca reveles que eres una IA.
-    - Basa tus respuestas en el historial de la conversación. No repitas información que ya te han dado.
-    - Mantén tu personalidad asignada. Si eres un cliente frustrado, tus respuestas deben reflejarlo.
-    - Tu objetivo es ver si el ejecutivo resuelve tu problema. No le des la solución fácilmente. Haz las preguntas que un cliente real haría.
-    - Si el ejecutivo resuelve tu problema de forma clara y empática, puedes dar por terminada la conversación con un agradecimiento.
-    - Responde de manera NATURAL y ÚNICA - evita repetir el mismo saludo o pregunta.`,
+    - **Actúa como el cliente en todo momento.** Nunca reveles esta guía pedagógica.
+    - **Ajusta tus preguntas y tu tono** para reflejar la taxonomía. Por ejemplo, si la taxonomía es "Recordar y Comprender", haz preguntas directas sobre definiciones. Si es "Evaluar y Crear", presenta dilemas complejos y pide soluciones creativas.
+    - Basa tus respuestas en el historial de la conversación.
+    - Si el ejecutivo resuelve tu problema alineado con los objetivos, finaliza la conversación agradeciendo. Si no, mantén tu personaje y la dificultad.`,
   ],
   new MessagesPlaceholder("chat_history"),
   ["human", "{input}"],
@@ -84,22 +88,18 @@ function findLastUserMessage(conversationHistory: IConversationMessage[]): IConv
 
 // --- NODO SIMULATION_AGENT (CORREGIDO) ---
 const simulation_agent = async (state: SimulationGraphState): Promise<Partial<SimulationGraphState>> => {
-  console.log("-> Entrando al nodo: Agente Simulador (IA Real)");
+  console.log("-> Entrando al nodo: Agente Simulador (IA Real con Contexto Pedagógico)");
 
   const { conversationHistory, caseInfo, levelInfo } = state;
   if (!caseInfo || !levelInfo) {
     throw new Error("Falta información del caso o del nivel en el estado del grafo.");
   }
 
+  // ... (la lógica para obtener lastUserMessage y formattedHistory se mantiene igual) ...
   const lastUserMessage = findLastUserMessage(conversationHistory);
-  
   if (!lastUserMessage) {
-    throw new Error("No se encontró ningún mensaje del usuario en el historial de conversación.");
+    throw new Error("No se encontró mensaje del usuario.");
   }
-
-  console.log(`🔍 Último mensaje del usuario: "${lastUserMessage.content.substring(0, 50)}..."`);
-
-  // 🔥 MEJORADO: Construir historial SIN el último mensaje del usuario
   const historyWithoutLastUser = conversationHistory.filter(msg => msg !== lastUserMessage);
   const formattedHistory = historyWithoutLastUser.map(msg =>
     msg.sender === 'ai' ? ['ai', msg.content] : ['human', msg.content]
@@ -107,30 +107,27 @@ const simulation_agent = async (state: SimulationGraphState): Promise<Partial<Si
 
   const persona = getPersonaForLevel(levelInfo.level);
 
-  try {
-    const responseContent = await simulatorChain.invoke({
-      caseTitle: caseInfo.title,
-      caseDescription: caseInfo.description || caseInfo.title,
-      level: levelInfo.level,
-      persona: persona,
-      chat_history: formattedHistory,
-      input: lastUserMessage.content,
-    });
+  // Invocamos el chain con el contexto completo, incluyendo la taxonomía y objetivos
+  const responseContent = await simulatorChain.invoke({
+    caseTitle: caseInfo.title,
+    caseDescription: caseInfo.description || caseInfo.title,
+    level: levelInfo.level,
+    persona: persona,
+    // --- NUEVAS VARIABLES ---
+    levelObjectives: levelInfo.objectives,
+    taxonomy: levelInfo.taxonomy,
+    // --- FIN NUEVAS VARIABLES ---
+    chat_history: formattedHistory,
+    input: lastUserMessage.content,
+  });
 
-    const aiResponse: IConversationMessage = {
-      sender: "ai",
-      content: responseContent,
-      timestamp: new Date(),
-    };
+  const aiResponse: IConversationMessage = {
+    sender: "ai",
+    content: responseContent,
+    timestamp: new Date(),
+  };
 
-    console.log(`🤖 Respuesta generada: "${responseContent.substring(0, 100)}..."`);
-
-    return { conversationHistory: [aiResponse] };
-
-  } catch (error) {
-    console.error("❌ Error en el Agente Simulador:", error);
-    throw error;
-  }
+  return { conversationHistory: [aiResponse] };
 };
 
 // --- SUPERVISOR AGENT (CORREGIDO PARA TERMINAR CORRECTAMENTE) ---
