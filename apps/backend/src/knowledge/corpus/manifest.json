@@ -1,0 +1,44 @@
+[
+  {
+    "id": "MANUAL DE FACTURACIÓN",
+    "path": "./corpus/MANUAL DE FACTURACIÓN.md",
+    "description": "Este manual detalla el marco legal y los procedimientos para la facturación de servicios sanitarios."
+  },
+  {
+    "id": "POLITICA DE CREDITO",
+    "path": "./corpus/lPOLITICA DE CREDITO.md",
+    "description": "Guía para explicar los componentes de la boleta de Aguas Nuevas."
+  },
+   
+  {
+    "id": "PROCEDIMIENTOS",
+    "path": "./corpus/PROCEDIMIENTOS.md",
+    "description": "El texto que detalla los procedimientos y estrategias de resolución comerciales, de facturación, y de atención al cliente."
+  },
+
+  {
+    "id": "DECRETO 50 RIDA",
+    "path": "./corpus/DECRETO 50 RIDA.md",
+    "description": "El Decreto 50 establece el reglamento que norma el diseño, la construcción y la puesta en servicio de las instalaciones domiciliarias de agua potable y alcantarillado en todo el territorio de Chile."
+  },
+  
+  {
+    "id": "DECRETO 1199-04",
+    "path": "./corpus/DECRETO 1199-04.md",
+    "description": "Este decreto establece el reglamento que regula las concesiones de servicios públicos de agua potable y alcantarillado, definiendo las condiciones para su otorgamiento y operación, así como los estándares de calidad y atención al usuario.."
+  },
+
+  {
+    "id": "INTERES POR MORA",
+    "path": "./corpus/INTERES POR MORA.md",
+    "description": "El texto detalla el marco legal y los dos métodos que un prestador de servicios puede utilizar para calcular y aplicar intereses y/o reajustes a las deudas morosas de sus clientes."
+  },
+  
+  {
+    "id": "MANUAL DE ATENCIÓN AL CLIENTE",
+    "path": "./corpus/MANUAL DE ATENCIÓN AL CLIENTE.md",
+    "description": "Este manual establece los protocolos y procedimientos para estandarizar la atención y gestión de los requerimientos comerciales y técnicos de los clientes de una empresa sanitaria."
+  }
+
+ 
+]

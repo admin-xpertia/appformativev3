@@ -28,7 +28,7 @@ importers:
         version: 9.0.1
       '@langchain/community':
         specifier: ^0.3.49
-        version: 0.3.49(@browserbasehq/sdk@2.6.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.54.1)(deepmerge@4.3.1)(dotenv@17.2.1)(openai@5.10.2(ws@8.18.3)(zod@3.25.76))(zod@3.25.76))(@ibm-cloud/watsonx-ai@1.6.10)(@langchain/core@0.3.66(openai@5.10.2(ws@8.18.3)(zod@3.25.76)))(axios@1.11.0)(ibm-cloud-sdk-core@5.4.2)(jsonwebtoken@9.0.2)(openai@5.10.2(ws@8.18.3)(zod@3.25.76))(playwright@1.54.1)(weaviate-client@3.8.0)(ws@8.18.3)
+        version: 0.3.49(@browserbasehq/sdk@2.6.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.54.1)(deepmerge@4.3.1)(dotenv@17.2.1)(openai@5.10.2(ws@8.18.3)(zod@3.25.76))(zod@3.25.76))(@ibm-cloud/watsonx-ai@1.6.10)(@langchain/core@0.3.66(openai@5.10.2(ws@8.18.3)(zod@3.25.76)))(@qdrant/js-client-rest@1.15.0(typescript@5.8.3))(axios@1.11.0)(ibm-cloud-sdk-core@5.4.2)(jsonwebtoken@9.0.2)(openai@5.10.2(ws@8.18.3)(zod@3.25.76))(playwright@1.54.1)(weaviate-client@3.8.0)(ws@8.18.3)
       '@langchain/core':
         specifier: ^0.3.66
         version: 0.3.66(openai@5.10.2(ws@8.18.3)(zod@3.25.76))
@@ -38,6 +38,12 @@ importers:
       '@langchain/openai':
         specifier: ^0.6.3
         version: 0.6.3(@langchain/core@0.3.66(openai@5.10.2(ws@8.18.3)(zod@3.25.76)))(ws@8.18.3)
+      '@langchain/textsplitters':
+        specifier: ^0.1.0
+        version: 0.1.0(@langchain/core@0.3.66(openai@5.10.2(ws@8.18.3)(zod@3.25.76)))
+      '@qdrant/js-client-rest':
+        specifier: ^1.15.0
+        version: 1.15.0(typescript@5.8.3)
       dotenv:
         specifier: ^17.2.1
         version: 17.2.1
@@ -197,7 +203,7 @@ importers:
         version: 7.61.1(react@19.1.0)
       react-resizable-panels:
         specifier: latest
-        version: 3.0.3(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
+        version: 3.0.4(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       recharts:
         specifier: latest
         version: 3.1.0(@types/react@19.1.8)(react-dom@19.1.0(react@19.1.0))(react-is@16.13.1)(react@19.1.0)(redux@5.0.1)
@@ -1006,6 +1012,16 @@ packages:
   '@protobufjs/utf8@1.1.0':
     resolution: {integrity: sha512-Vvn3zZrhQZkkBE8LSuW3em98c0FwgO4nxzv6OdSxPKJIEKY2bGbHn+mhGIPerzI4twdxaP8/0+06HBpwf345Lw==}
 
+  '@qdrant/js-client-rest@1.15.0':
+    resolution: {integrity: sha512-4aaEmjRbvrk//Ser+//M4NLCBBD2dwlIGWo7PPwdoWmQYlQYDc3Ey8KTiH9ZDsyufYhHX40P2jX4zHuqtdZwJw==}
+    engines: {node: '>=18.17.0', pnpm: '>=8'}
+    peerDependencies:
+      typescript: '>=4.7'
+
+  '@qdrant/openapi-typescript-fetch@1.2.6':
+    resolution: {integrity: sha512-oQG/FejNpItrxRHoyctYvT3rwGZOnK4jr3JdppO/c78ktDvkWiPXPHNsrDf33K9sZdRb6PR7gi4noIapu5q4HA==}
+    engines: {node: '>=18.0.0', pnpm: '>=8'}
+
   '@radix-ui/number@1.1.1':
     resolution: {integrity: sha512-MkKCwxlXTgz6CFoJx3pCwn07GKp36+aZyu/u2Ln2VrA5DcdyCZkASEDBTd8x5whTQQL5CiYf4prXKLcgQdv29g==}
 
@@ -1641,6 +1657,9 @@ packages:
         optional: true
       react-redux:
         optional: true
+
+  '@sevinf/maybe@0.5.0':
+    resolution: {integrity: sha512-ARhyoYDnY1LES3vYI0fiG6e9esWfTNcXcO6+MPJJXcnyMV3bim4lnFt45VXouV7y82F4x3YH8nOQ6VztuvUiWg==}
 
   '@standard-schema/spec@1.0.0':
     resolution: {integrity: sha512-m2bOd0f2RT9k8QJx1JN85cZYyH1RqFBdlwtkSlf4tBDYLCiiZnv1fIIwacK6cqwXavOydf0NPToMQgpKq+dVlA==}
@@ -2910,8 +2929,8 @@ packages:
       '@types/react':
         optional: true
 
-  react-resizable-panels@3.0.3:
-    resolution: {integrity: sha512-7HA8THVBHTzhDK4ON0tvlGXyMAJN1zBeRpuyyremSikgYh2ku6ltD7tsGQOcXx4NKPrZtYCm/5CBr+dkruTGQw==}
+  react-resizable-panels@3.0.4:
+    resolution: {integrity: sha512-8Y4KNgV94XhUvI2LeByyPIjoUJb71M/0hyhtzkHaqpVHs+ZQs8b627HmzyhmVYi3C9YP6R+XD1KmG7hHjEZXFQ==}
     peerDependencies:
       react: ^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc
       react-dom: ^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0 || ^19.0.0-rc
@@ -3250,6 +3269,10 @@ packages:
 
   undici-types@7.8.0:
     resolution: {integrity: sha512-9UJ2xGDvQ43tYyVMpuHlsgApydB8ZKfVYTsLDhXkFL/6gfkp+U8xTGdh8pMJv1SpZna0zxG1DwsKZsreLbXBxw==}
+
+  undici@6.21.3:
+    resolution: {integrity: sha512-gBLkYIlEnSp8pFbT64yFgGE6UIB9tAkhukC23PmMDCe5Nd+cRqKxSjw5y54MK2AZMgZfJWMaNE4nYUHgi1XEOw==}
+    engines: {node: '>=18.17'}
 
   universalify@0.2.0:
     resolution: {integrity: sha512-CJ1QgKmNg3CwvAv/kOFmtnEN05f0D/cn9QntgNOQlQF9dgvVTHj3t+8JPdjqawCHk7V/KA+fbUqzZ9XWhcqPUg==}
@@ -3619,7 +3642,7 @@ snapshots:
 
   '@js-sdsl/ordered-map@4.4.2': {}
 
-  '@langchain/community@0.3.49(@browserbasehq/sdk@2.6.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.54.1)(deepmerge@4.3.1)(dotenv@17.2.1)(openai@5.10.2(ws@8.18.3)(zod@3.25.76))(zod@3.25.76))(@ibm-cloud/watsonx-ai@1.6.10)(@langchain/core@0.3.66(openai@5.10.2(ws@8.18.3)(zod@3.25.76)))(axios@1.11.0)(ibm-cloud-sdk-core@5.4.2)(jsonwebtoken@9.0.2)(openai@5.10.2(ws@8.18.3)(zod@3.25.76))(playwright@1.54.1)(weaviate-client@3.8.0)(ws@8.18.3)':
+  '@langchain/community@0.3.49(@browserbasehq/sdk@2.6.0)(@browserbasehq/stagehand@1.14.0(@playwright/test@1.54.1)(deepmerge@4.3.1)(dotenv@17.2.1)(openai@5.10.2(ws@8.18.3)(zod@3.25.76))(zod@3.25.76))(@ibm-cloud/watsonx-ai@1.6.10)(@langchain/core@0.3.66(openai@5.10.2(ws@8.18.3)(zod@3.25.76)))(@qdrant/js-client-rest@1.15.0(typescript@5.8.3))(axios@1.11.0)(ibm-cloud-sdk-core@5.4.2)(jsonwebtoken@9.0.2)(openai@5.10.2(ws@8.18.3)(zod@3.25.76))(playwright@1.54.1)(weaviate-client@3.8.0)(ws@8.18.3)':
     dependencies:
       '@browserbasehq/stagehand': 1.14.0(@playwright/test@1.54.1)(deepmerge@4.3.1)(dotenv@17.2.1)(openai@5.10.2(ws@8.18.3)(zod@3.25.76))(zod@3.25.76)
       '@ibm-cloud/watsonx-ai': 1.6.10
@@ -3638,6 +3661,7 @@ snapshots:
       zod: 3.25.76
     optionalDependencies:
       '@browserbasehq/sdk': 2.6.0
+      '@qdrant/js-client-rest': 1.15.0(typescript@5.8.3)
       jsonwebtoken: 9.0.2
       playwright: 1.54.1
       weaviate-client: 3.8.0
@@ -3801,6 +3825,15 @@ snapshots:
   '@protobufjs/pool@1.1.0': {}
 
   '@protobufjs/utf8@1.1.0': {}
+
+  '@qdrant/js-client-rest@1.15.0(typescript@5.8.3)':
+    dependencies:
+      '@qdrant/openapi-typescript-fetch': 1.2.6
+      '@sevinf/maybe': 0.5.0
+      typescript: 5.8.3
+      undici: 6.21.3
+
+  '@qdrant/openapi-typescript-fetch@1.2.6': {}
 
   '@radix-ui/number@1.1.1': {}
 
@@ -4487,6 +4520,8 @@ snapshots:
       react: 19.1.0
       react-redux: 9.2.0(@types/react@19.1.8)(react@19.1.0)(redux@5.0.1)
 
+  '@sevinf/maybe@0.5.0': {}
+
   '@standard-schema/spec@1.0.0': {}
 
   '@standard-schema/utils@0.3.0': {}
@@ -5156,7 +5191,7 @@ snapshots:
       isstream: 0.1.2
       jsonwebtoken: 9.0.2
       mime-types: 2.1.35
-      retry-axios: 2.6.0(axios@1.11.0)
+      retry-axios: 2.6.0(axios@1.11.0(debug@4.4.1))
       tough-cookie: 4.1.4
     transitivePeerDependencies:
       - supports-color
@@ -5648,7 +5683,7 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.1.8
 
-  react-resizable-panels@3.0.3(react-dom@19.1.0(react@19.1.0))(react@19.1.0):
+  react-resizable-panels@3.0.4(react-dom@19.1.0(react@19.1.0))(react@19.1.0):
     dependencies:
       react: 19.1.0
       react-dom: 19.1.0(react@19.1.0)
@@ -5727,7 +5762,7 @@ snapshots:
 
   ret@0.4.3: {}
 
-  retry-axios@2.6.0(axios@1.11.0):
+  retry-axios@2.6.0(axios@1.11.0(debug@4.4.1)):
     dependencies:
       axios: 1.11.0(debug@4.4.1)
 
@@ -6050,6 +6085,8 @@ snapshots:
   undici-types@6.21.0: {}
 
   undici-types@7.8.0: {}
+
+  undici@6.21.3: {}
 
   universalify@0.2.0: {}
 
