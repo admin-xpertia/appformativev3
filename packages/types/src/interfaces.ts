@@ -1,16 +1,10 @@
+// En packages/types/src/interfaces.ts
 import { CaseSlug, CompetencySlug, CompetencyLevel } from "./enums";
 
-/**
- * Representa la estructura de un caso de simulación individual.
- */
 export interface ICase {
-  // --- CORRECCIÓN AÑADIDA ---
-  // Satisface el requisito de la librería de base de datos
-  [key: string]: any; 
-  // --- FIN DE LA CORRECCIÓN ---
-
+  [key: string]: any;
   id: CaseSlug;
-  slug: string; // Añadido para consistencia con los datos de siembra
+  slug: string;
   title: string;
   currentLevel?: CompetencyLevel;
   attempts?: string;
@@ -19,20 +13,37 @@ export interface ICase {
   lastAttempt?: string;
 }
 
-/**
- * Representa el progreso del usuario en UNA competencia específica.
- */
-export interface ICompetencyProgress {
-  // --- CORRECCIÓN AÑADIDA ---
-  [key: string]: any; 
-  // --- FIN DE LA CORRECCIÓN ---
+export interface ILevel {
+  [key: string]: any;
+  id: string;
+  case: string;
+  caseTitle: string;
+  level: CompetencyLevel;
+  objectives: string;
+}
 
+export interface ICompetencyProgress {
+  [key: string]: any;
   competency: CompetencySlug;
   progress: number;
   level: CompetencyLevel;
 }
 
-// --- El resto de las interfaces se mantienen igual ---
+// --- INICIO DE LA CORRECCIÓN ---
+export interface ISimulationSession {
+  [key: string]: any; // Añadimos la firma de índice
+  id: string;
+  userId: string;
+  case: CaseSlug;
+  level: CompetencyLevel;
+  attemptNumber: number;
+  startTime: Date;
+  endTime?: Date;
+  conversationHistory: IConversationMessage[];
+  finalFeedback?: IFeedbackReport;
+  passed: boolean;
+}
+// --- FIN DE LA CORRECCIÓN ---
 
 export interface IConversationMessage {
   sender: 'user' | 'ai';
@@ -52,26 +63,4 @@ export interface IFeedbackReport {
   generalCommentary: string;
   competencyFeedback: ICompetencyFeedback[];
   recommendations: string[];
-}
-
-export interface ISimulationSession {
-  id: string;
-  userId: string;
-  case: CaseSlug;
-  level: CompetencyLevel;
-  attemptNumber: number;
-  startTime: Date;
-  endTime?: Date;
-  conversationHistory: IConversationMessage[];
-  finalFeedback?: IFeedbackReport;
-  passed: boolean;
-}
-
-export interface ILevel {
-  [key: string]: any;
-  id: string;
-  case: string; // ID del caso al que pertenece, ej. "case:sobreconsumo"
-  caseTitle: string;
-  level: CompetencyLevel;
-  objectives: string;
 }

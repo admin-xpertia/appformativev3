@@ -3,9 +3,16 @@
     "target": "es2021",
     "module": "commonjs",
     "outDir": "./dist",
-    "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
-  }
+    "skipLibCheck": true,
+    // --- INICIO DE LA CORRECCIÓN ---
+    "baseUrl": ".", // Le decimos que la base para las rutas es esta carpeta
+    "paths": {
+      "@/*": ["./src/*"] // Creamos el alias '@/' para apuntar a 'src'
+    }
+    // --- FIN DE LA CORRECCIÓN ---
+  },
+  "include": ["src/**/*.ts"], // Le decimos que incluya todos los archivos .ts dentro de src
+  "exclude": ["node_modules"]
 }

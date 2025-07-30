@@ -1,14 +1,13 @@
 "use client"
 
-import type React from "react"
-
-import { useState, useRef, useEffect } from "react"
-import { ArrowLeft, Send, Sidebar, X } from "lucide-react"
+import React, { useState, useRef, useEffect } from "react"
+import { ArrowLeft, Send, Sidebar as SidebarIcon, X, Trophy } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { sendTurn, finalizeSession } from "@/services/api.service"
 import type { ISimulationSession, IConversationMessage } from "../../../../packages/types"
 
-// ✅ PROPS ACTUALIZADAS: Ahora recibe una sesión completa
+// ✅ PROPS COMBINADAS: Funcional + Estético
 interface SimulationViewProps {
   session: ISimulationSession
   onComplete: () => void
@@ -17,37 +16,24 @@ interface SimulationViewProps {
   sidebarVisible: boolean
 }
 
-interface Message {
-  sender: "user" | "ai"
-  content: string
-  timestamp: Date
-}
-
 export function SimulationView({ session, onComplete, onBack, onToggleSidebar, sidebarVisible }: SimulationViewProps) {
-  // ✅ USAR HISTORIAL DE LA SESIÓN: Convertir IConversationMessage[] a Message[]
-  const initialMessages: Message[] = session.conversationHistory.map((msg: IConversationMessage) => ({
-    sender: msg.sender,
-    content: msg.content,
-    timestamp: new Date(msg.timestamp)
-  }))
-
-  // ✅ Si no hay historial, añadir mensaje de bienvenida
-  const [messages, setMessages] = useState<Message[]>(
-    initialMessages.length > 0 
-      ? initialMessages 
-      : [{
-          sender: "ai",
-          content: `¡Bienvenido a la simulación del caso "${session.case}"! Soy tu cliente virtual. Comencemos con la consulta...`,
-          timestamp: new Date()
-        }]
-  )
-  
+  // ✅ FUNCIONALIDAD: Estado basado en la sesión real
+  const [messages, setMessages] = useState<IConversationMessage[]>(session.conversationHistory)
   const [inputValue, setInputValue] = useState("")
   const [isTyping, setIsTyping] = useState(false)
+  
+  // 🔥 NUEVOS ESTADOS para control de simulación
+  const [simulationComplete, setSimulationComplete] = useState(false)
+  const [showEvaluationPrompt, setShowEvaluationPrompt] = useState(false)
+  const [canSendMessage, setCanSendMessage] = useState(true)
+  const [lastResponse, setLastResponse] = useState<any>(null)
+  
+  // ✅ ESTÉTICA: Estados para el diseño visual
   const [isInputFocused, setIsInputFocused] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
+  // ✅ Auto-scroll cuando hay nuevos mensajes
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
@@ -56,10 +42,26 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
     scrollToBottom()
   }, [messages])
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim()) return
+  // 🔥 NUEVA FUNCIONALIDAD: Manejar finalización de simulación
+  const handleSimulationComplete = (response: any) => {
+    console.log("🏁 Simulación completada:", response.message);
+    setSimulationComplete(true);
+    setCanSendMessage(false);
+    setShowEvaluationPrompt(true);
+    setLastResponse(response);
+    
+    // Auto-proceder a evaluación después de 3 segundos
+    setTimeout(() => {
+      console.log("⏰ Procediendo automáticamente a evaluación...");
+      onComplete();
+    }, 3000);
+  };
 
-    const userMessage: Message = {
+  // ✅ FUNCIONALIDAD ACTUALIZADA: Enviar mensaje con manejo de estados
+  const handleSendMessage = async () => {
+    if (!inputValue.trim() || isTyping || !canSendMessage || simulationComplete) return
+
+    const userMessage: IConversationMessage = {
       sender: "user",
       content: inputValue,
       timestamp: new Date(),
@@ -69,36 +71,83 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
     setInputValue("")
     setIsTyping(true)
 
-    // TODO: Aquí conectaremos con la API real del agente simulador
-    // Por ahora, respuesta mock
-    setTimeout(() => {
-      const aiResponses = [
-        "Entiendo su preocupación. Permíteme revisar su cuenta para ayudarle mejor.",
-        "Gracias por esa información. Veo que efectivamente hay una discrepancia en su factura.",
-        "Perfecto, he procesado su solicitud. ¿Hay algo más en lo que pueda ayudarle?",
-        "Muchas gracias por su paciencia. Su caso ha sido resuelto satisfactoriamente.",
-      ]
+    try {
+      // ✅ Llamada a la API conectada al grafo de LangGraph
+      const response = await sendTurn(session.id, userMessage.content)
+      
+      // Añadir la respuesta de la IA al chat
+      setMessages((prev) => [...prev, response.ai_message])
 
-      const randomResponse = aiResponses[Math.floor(Math.random() * aiResponses.length)]
+      // 🔥 MANEJAR LAS NUEVAS RESPUESTAS DEL BACKEND
+      switch (response.next_action) {
+        case 'continue':
+          console.log("⏳ Simulación continúa:", response.message);
+          setCanSendMessage(true);
+          break;
 
-      const aiMessage: Message = {
-        sender: "ai",
-        content: randomResponse,
-        timestamp: new Date(),
+        case 'evaluation':
+          handleSimulationComplete(response);
+          break;
+
+        default:
+          // Fallback para compatibilidad con respuestas antiguas
+          if (response.status === 'completed') {
+            handleSimulationComplete(response);
+          }
+          break;
       }
 
-      setMessages((prev) => [...prev, aiMessage])
+    } catch (error) {
+      console.error("❌ Error al enviar el turno:", error)
+      
+      // 🔥 CORREGIDO: Type assertion para manejar el error
+      const err = error as Error;
+      
+      const errorMessage: IConversationMessage = {
+        sender: 'ai',
+        content: 'Hubo un error al procesar tu respuesta. Por favor, intenta de nuevo.',
+        timestamp: new Date()
+      }
+      setMessages(prev => [...prev, errorMessage])
+      
+      // Si es un error de recursión, forzar evaluación
+      if (err.message.includes('recursión') || err.message.includes('RECURSION_LIMIT')) {
+        handleSimulationComplete({
+          status: 'completed',
+          message: 'La simulación se detuvo por límite técnico.',
+          next_action: 'evaluation'
+        });
+      }
+    } finally {
       setIsTyping(false)
-
-      // After 6 messages, complete simulation
-      if (messages.length >= 8) {
-        setTimeout(() => {
-          onComplete()
-        }, 2000)
-      }
-    }, 1500)
+    }
   }
 
+  // 🔥 NUEVA FUNCIÓN: Finalizar manualmente
+  const handleManualFinalize = async () => {
+    try {
+      setIsTyping(true);
+      const response = await finalizeSession(session.id);
+      handleSimulationComplete(response);
+    } catch (error) {
+      console.error("❌ Error al finalizar manualmente:", error);
+      
+      // 🔥 CORREGIDO: Type assertion para manejar el error
+      const err = error as Error;
+      
+      // Mostrar error al usuario si es necesario
+      const errorMessage: IConversationMessage = {
+        sender: 'ai',
+        content: `Error al finalizar la simulación: ${err.message || 'Error desconocido'}`,
+        timestamp: new Date()
+      }
+      setMessages(prev => [...prev, errorMessage])
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  // ✅ ESTÉTICA: Manejo de teclas con Enter
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
@@ -106,6 +155,7 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
     }
   }
 
+  // ✅ ESTÉTICA: Auto-resize del textarea
   const adjustTextareaHeight = () => {
     if (inputRef.current) {
       inputRef.current.style.height = "auto"
@@ -117,8 +167,11 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
     adjustTextareaHeight()
   }, [inputValue])
 
-  // ✅ DETERMINAR ESTADO DE LA SESIÓN
+  // ✅ FUNCIONALIDAD MEJORADA: Determinar estado de la sesión
   const getSessionStatus = () => {
+    if (simulationComplete) {
+      return "Completado ✅"
+    }
     if (session.endTime) {
       return session.passed ? "Completado ✅" : "Finalizado"
     }
@@ -126,11 +179,17 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
   }
 
   const getStatusBadgeColor = () => {
-    if (session.endTime) {
-      return session.passed ? "bg-green-500" : "bg-gray-500"
+    if (simulationComplete || session.endTime) {
+      return "bg-green-500"
     }
     return "bg-[#48B5A3]"
   }
+
+  // 🔥 NUEVA FUNCIÓN: Determinar si mostrar botón de finalización manual
+  const shouldShowManualFinalize = () => {
+    const userMessages = messages.filter(msg => msg.sender === 'user').length;
+    return userMessages >= 2 && !simulationComplete && canSendMessage;
+  };
 
   return (
     <div
@@ -139,7 +198,7 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
       }`}
       style={{ marginTop: "64px" }}
     >
-      {/* Header */}
+      {/* ✅ HEADER con estado actualizado */}
       <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-white">
         <div className="flex items-center gap-4">
           <Button variant="ghost" onClick={onBack} className="hover:bg-gray-100">
@@ -152,29 +211,23 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
             className="hover:bg-gray-100"
             title={sidebarVisible ? "Ocultar panel" : "Mostrar panel"}
           >
-            {sidebarVisible ? <X className="w-4 h-4" /> : <Sidebar className="w-4 h-4" />}
+            {sidebarVisible ? <X className="w-4 h-4" /> : <SidebarIcon className="w-4 h-4" />}
           </Button>
           <div>
-            {/* ✅ USAR DATOS REALES DE LA SESIÓN */}
             <h2 className="text-lg font-semibold text-gray-800">
               Caso: {session.case} (Nivel {session.level})
             </h2>
             <p className="text-sm text-gray-500">
-              Sesión: {session.id} | Intento: {session.attemptNumber}
-            </p>
-            <p className="text-xs text-gray-400">
-              Iniciado: {new Date(session.startTime).toLocaleString()}
+              Cliente: Juan Pérez | Sesión: {session.id}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge className={`${getStatusBadgeColor()} text-white`}>
-            {getSessionStatus()}
-          </Badge>
-        </div>
+        <Badge className={`${getStatusBadgeColor()} text-white`}>
+          {getSessionStatus()}
+        </Badge>
       </div>
 
-      {/* Messages Area */}
+      {/* ✅ MESSAGES AREA */}
       <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
         <div className="space-y-3 max-w-4xl mx-auto">
           {messages.map((message, index) => (
@@ -196,12 +249,13 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
               >
                 <p className="text-[15px] leading-relaxed">{message.content}</p>
                 <p className={`text-xs mt-2 ${message.sender === "user" ? "text-white/70" : "text-gray-500"}`}>
-                  {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 </p>
               </div>
             </div>
           ))}
 
+          {/* ✅ INDICADOR DE TYPING */}
           {isTyping && (
             <div className="flex justify-start">
               <div
@@ -222,13 +276,47 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
               </div>
             </div>
           )}
+
+          {/* 🔥 NUEVO: Prompt de evaluación */}
+          {showEvaluationPrompt && (
+            <div className="flex justify-center">
+              <div className="bg-gradient-to-r from-green-100 to-blue-100 px-6 py-4 rounded-3xl border border-green-200 text-center max-w-md">
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <Trophy className="w-5 h-5 text-green-600" />
+                  <h3 className="font-semibold text-green-800">¡Simulación Completada!</h3>
+                </div>
+                <p className="text-sm text-green-700 mb-3">{lastResponse?.message}</p>
+                <Button 
+                  onClick={onComplete}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  Ver Evaluación
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div ref={messagesEndRef} />
         </div>
       </div>
 
-      {/* Input Area - iMessage Style */}
+      {/* ✅ INPUT AREA ACTUALIZADA */}
       <div className="p-4 bg-white border-t border-gray-100">
         <div className="max-w-4xl mx-auto">
+          {/* 🔥 BOTÓN DE FINALIZACIÓN MANUAL */}
+          {shouldShowManualFinalize() && (
+            <div className="mb-3 text-center">
+              <Button
+                onClick={handleManualFinalize}
+                variant="outline"
+                className="text-sm border-orange-200 text-orange-700 hover:bg-orange-50"
+                disabled={isTyping}
+              >
+                Finalizar Simulación Manualmente
+              </Button>
+            </div>
+          )}
+
           <div className="flex items-end gap-3">
             <div className="flex-1 relative">
               <textarea
@@ -238,18 +326,24 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
                 onKeyPress={handleKeyPress}
                 onFocus={() => setIsInputFocused(true)}
                 onBlur={() => setIsInputFocused(false)}
-                placeholder="Escribe tu respuesta..."
+                placeholder={
+                  simulationComplete 
+                    ? "Simulación completada" 
+                    : !canSendMessage 
+                      ? "Esperando..." 
+                      : "Escribe tu respuesta..."
+                }
                 className="w-full px-4 py-3 bg-gray-100 rounded-3xl border-none resize-none focus:outline-none focus:ring-2 focus:ring-[#48B5A3]/30 focus:bg-white transition-all duration-200 text-[15px] leading-relaxed"
                 style={{ minHeight: "44px", maxHeight: "120px" }}
-                disabled={isTyping || !!session.endTime} // ✅ Deshabilitar si la sesión ya terminó
+                disabled={isTyping || simulationComplete || !canSendMessage}
                 rows={1}
               />
             </div>
             <Button
               onClick={handleSendMessage}
-              disabled={!inputValue.trim() || isTyping || !!session.endTime}
+              disabled={!inputValue.trim() || isTyping || simulationComplete || !canSendMessage}
               className={`w-11 h-11 rounded-full p-0 transition-all duration-200 ${
-                inputValue.trim() && !isTyping && !session.endTime
+                inputValue.trim() && !isTyping && canSendMessage && !simulationComplete
                   ? "bg-[#48B5A3] hover:bg-[#2ECC71] shadow-lg scale-100"
                   : "bg-gray-300 cursor-not-allowed scale-95"
               }`}

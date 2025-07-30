@@ -1,5 +1,5 @@
 // src/services/api.service.ts
-import type { ICase, ICompetencyProgress, ISimulationSession, CaseSlug } from "../../../../packages/types";
+import type { ICase, ICompetencyProgress, ISimulationSession, CaseSlug, IConversationMessage } from "../../../../packages/types";
 
 const API_BASE_URL = "http://localhost:3001/api";
 
@@ -47,7 +47,6 @@ export const getBriefing = async (caseId: string, level: string): Promise<{ brie
   return response.json();
 };
 
-// ✅ NUEVA FUNCIÓN: Iniciar sesión de simulación
 export const startSession = async (caseSlug: string, userId: string): Promise<ISimulationSession> => {
   console.log(`🚀 API: Iniciando sesión para caso ${caseSlug}, usuario ${userId}`);
   
@@ -67,4 +66,70 @@ export const startSession = async (caseSlug: string, userId: string): Promise<IS
   const session = await response.json();
   console.log('✅ Sesión iniciada exitosamente:', session.id);
   return session;
+};
+
+// 🔥 INTERFAZ ACTUALIZADA para manejar las nuevas respuestas
+interface TurnResponse {
+  status: 'in_progress' | 'completed';
+  ai_message: IConversationMessage;
+  next_action: 'continue' | 'evaluation'; // 🔥 NUEVO: Acción específica
+  message: string; // 🔥 NUEVO: Mensaje descriptivo
+  total_exchanges?: number; // 🔥 NUEVO: Contador de intercambios
+}
+
+export const sendTurn = async (sessionId: string, content: string): Promise<TurnResponse> => {
+  console.log(`📤 API: Enviando turno a sesión ${sessionId}`, { content: content.substring(0, 50) + '...' });
+  
+  const response = await fetch(`${API_BASE_URL}/session/${sessionId}/turn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    console.error('❌ API: Error al procesar turno:', errorData);
+    
+    // 🔥 MANEJO ESPECÍFICO del error de recursión
+    if (errorData.code === 'RECURSION_LIMIT') {
+      return {
+        status: 'completed',
+        ai_message: {
+          sender: 'ai',
+          content: 'La simulación ha alcanzado su límite. Procedamos a la evaluación.',
+          timestamp: new Date()
+        },
+        next_action: 'evaluation',
+        message: 'Simulación finalizada por límite de recursión.'
+      };
+    }
+    
+    throw new Error(errorData.error || 'Error al procesar el turno');
+  }
+  
+  const result = await response.json();
+  console.log(`✅ API: Turno procesado exitosamente`, { 
+    status: result.status, 
+    next_action: result.next_action 
+  });
+  
+  return result;
+};
+
+// 🔥 NUEVA FUNCIÓN: Finalizar simulación manualmente
+export const finalizeSession = async (sessionId: string): Promise<any> => {
+  console.log(`🏁 API: Finalizando sesión ${sessionId}`);
+  
+  const response = await fetch(`${API_BASE_URL}/session/${sessionId}/finalize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  
+  if (!response.ok) {
+    throw new Error('Error al finalizar la simulación');
+  }
+  
+  const result = await response.json();
+  console.log('✅ API: Sesión finalizada exitosamente');
+  return result;
 };

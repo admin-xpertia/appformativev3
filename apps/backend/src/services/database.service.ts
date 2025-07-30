@@ -10,9 +10,115 @@ import {
 
 const db = new Surreal();
 
+// === ❸ UTILIDADES DRY ===
+// Helper para encontrar el RecordId de una sesión
+async function findSessionRecordId(sessionId: string): Promise<RecordId> {
+  const query = 'SELECT id FROM session WHERE record::id(id) = $sessionId LIMIT 1;';
+  const result = await db.query<[{ id: RecordId }[]]>(query, { sessionId });
+  
+  if (!result[0]?.[0]) {
+    throw new Error(`Sesión ${sessionId} no encontrada`);
+  }
+  
+  return result[0][0].id;
+}
+
+// Helper para crear thing reference
+function createSessionThing(sessionId: string): string {
+  return `session:${sessionId}`;
+}
+
+// === ❹ VALIDACIÓN DE ENV VARS ===
+function validateEnvVars() {
+  const required = ['DB_URL', 'DB_NAMESPACE', 'DB_DATABASE', 'DB_USER', 'DB_PASS'];
+  const missing = required.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Variables de entorno faltantes: ${missing.join(', ')}`);
+  }
+}
+
+// === ❻ LOGGING MEJORADO ===
+const logger = {
+  info: (msg: string, data?: any) => console.log(`ℹ️ ${msg}`, data ? JSON.stringify(data, null, 2) : ''),
+  error: (msg: string, error?: any) => console.error(`❌ ${msg}`, error),
+  debug: (msg: string, data?: any) => console.log(`🔍 ${msg}`, data ? JSON.stringify(data, null, 2) : ''),
+  success: (msg: string, data?: any) => console.log(`✅ ${msg}`, data ? JSON.stringify(data, null, 2) : ''),
+};
+
+// Función auxiliar para limpiar IDs de casos
+function cleanCaseId(id: any): CaseSlug {
+  let cleanId = id;
+  
+  if (typeof cleanId === 'object' && cleanId.id) {
+    cleanId = cleanId.id;
+  }
+  
+  if (typeof cleanId === 'string') {
+    cleanId = cleanId.replace(/^case:/, '');
+    cleanId = cleanId.replace(/⟨|⟩/g, '');
+  }
+  
+  return cleanId as CaseSlug;
+}
+
+// === TIPOS PARA LA BASE DE DATOS ===
+type SessionRow = {
+  id?: RecordId | string;
+  userId: string;
+  caseSlug: CaseSlug;
+  level: CompetencyLevel;
+  attemptNumber: number;
+  startTime: string | Date;
+  endTime?: string | Date;
+  passed: boolean;
+  status: string;
+};
+
+type MessageRow = {
+  id?: RecordId | string;
+  sessionId: RecordId | string;
+  sender: 'user' | 'ai';
+  content: string;
+  timestamp: string | Date;
+};
+
+type FeedbackRow = {
+  id?: RecordId | string;
+  sessionId: RecordId | string;
+  generalCommentary: string;
+  competencyFeedback: IFeedbackReport['competencyFeedback'];
+  recommendations: string[];
+};
+
+type NewSessionData = {
+  userId: string;
+  caseSlug: CaseSlug;
+  level: CompetencyLevel;
+  attemptNumber: number;
+  status: string;
+  startTime: Date; // ❺ Date object para SurrealDB
+  passed: boolean;
+};
+
+// === ❺ UTILIDADES PARA FECHAS COHERENTES ===
+// Para SurrealDB: enviamos Date objects directamente
+// Para output al frontend: convertimos a Date objects
+function toISOString(date: Date): string {
+  return date.toISOString();
+}
+
+function parseDate(dateInput: string | Date): Date {
+  return dateInput instanceof Date ? dateInput : new Date(dateInput);
+}
+
 export async function connectToDB() {
   try {
-    console.log('Estableciendo conexión con SurrealDB Cloud…');
+    // ❹ Validar variables de entorno primero
+    validateEnvVars();
+    
+    logger.info('Estableciendo conexión con SurrealDB Cloud…');
+    
     await db.connect(process.env.DB_URL!, {
       namespace: process.env.DB_NAMESPACE!,
       database: process.env.DB_DATABASE!,
@@ -21,10 +127,11 @@ export async function connectToDB() {
         password: process.env.DB_PASS!,
       },
     });
+    
     await db.ready;
-    console.log('✅ Conexión WebSocket establecida.');
+    logger.success('Conexión WebSocket establecida');
   } catch (e) {
-    console.error('❌ ERROR AL ESTABLECER CONEXIÓN:', e);
+    logger.error('ERROR AL ESTABLECER CONEXIÓN', e);
     throw e;
   }
 }
@@ -37,156 +144,249 @@ export async function createSession(
   caseSlug: string
 ): Promise<ISimulationSession> {
   const slug = caseSlug as CaseSlug;
-  const id = `${slug}:${Date.now()}`;
-  const rid = new RecordId('session', id);
   const now = new Date();
 
-  console.log(`🎯 Creando sesión con ID: ${id}`);
-  console.log(`📊 Datos de la sesión:`, {
+  const newSessionData: NewSessionData = {
     userId,
     caseSlug: slug,
     level: CompetencyLevel.BRONCE,
     attemptNumber: 1,
     status: 'in_progress',
-    startTime: now,
-    // ✅ NO incluir endTime - SurrealDB lo marcará como NONE automáticamente
-  });
-
-  // ✅ CORRECCIÓN: Omitir endTime completamente para que SurrealDB use NONE
-  await db.create(rid, {
-    userId,
-    caseSlug: slug,
-    level: CompetencyLevel.BRONCE,
-    attemptNumber: 1,
-    status: 'in_progress',
-    startTime: now,
-    passed: false,
-    // endTime: NO incluir este campo - SurrealDB manejará el option<datetime> como NONE
-  });
-
-  console.log(`✅ Sesión creada exitosamente en la BD`);
-
-  return {
-    id,
-    userId,
-    case: slug,
-    level: CompetencyLevel.BRONCE,
-    attemptNumber: 1,
-    startTime: now,
-    endTime: undefined, // ✅ En el objeto retornado, undefined indica sesión activa
-    conversationHistory: [],
+    startTime: now, // ❅ Date object directo para SurrealDB
     passed: false,
   };
+
+  try {
+    logger.info('Creando sesión en la tabla session', { userId, caseSlug: slug });
+    
+    // ❹ Con tipado genérico para mejor type safety
+    const createdRecords = await db.create<SessionRow>("session", newSessionData);
+
+    let createdSession: SessionRow;
+    if (Array.isArray(createdRecords)) {
+      if (createdRecords.length === 0) {
+        throw new Error("La creación de la sesión no devolvió un registro.");
+      }
+      createdSession = createdRecords[0];
+    } else {
+      createdSession = createdRecords;
+    }
+    
+    // ❶ Usar record::id en lugar de string::split
+    const sessionId = String(createdSession.id).split(':')[1] || '';
+    
+    logger.success('Sesión creada en la BD', { sessionId });
+    
+    const finalSession: ISimulationSession = {
+      id: sessionId,
+      userId: String(createdSession.userId),
+      case: createdSession.caseSlug,
+      level: createdSession.level,
+      attemptNumber: Number(createdSession.attemptNumber),
+      startTime: parseDate(createdSession.startTime), // ❅ Conversión coherente
+      endTime: createdSession.endTime ? parseDate(createdSession.endTime) : undefined,
+      conversationHistory: [],
+      passed: Boolean(createdSession.passed),
+    };
+
+    return finalSession;
+
+  } catch (error) {
+    logger.error('Error durante la creación de la sesión', error);
+    throw error;
+  }
 }
 
 /**
- * Recupera una sesión junto con su historial de mensajes.
+ * ❷ Recupera una sesión junto con su historial de mensajes (SIN full-table scan).
  */
-export async function getSession(
-  sessionId: string
-): Promise<ISimulationSession> {
-  const sessionRid = new RecordId('session', sessionId);
-  const sessions = await db.select<any>(sessionRid);
-  if (!sessions.length) throw new Error('Sesión no encontrada');
-  const raw = sessions[0] as any;
+export async function getSession(sessionId: string): Promise<ISimulationSession> {
+  try {
+    // ❶ Usar la misma sintaxis que funciona en otras partes del código
+    const sessionQuery = 'SELECT * FROM session WHERE record::id(id) = $sessionId LIMIT 1;';
+    const sessionResponse = await db.query<[SessionRow[]]>(sessionQuery, {
+      sessionId: sessionId
+    });
 
-  // Leer mensajes asociados
-  const allMessages = await db.select<any>('message');
-  const rawMessages = allMessages.filter((m: any) => {
-    const sid = m.sessionId as RecordId<string>;
-    return sid.tb === 'session' && sid.id === sessionId;
-  });
+    const rawSession = sessionResponse?.[0]?.[0];
 
-  const messages: IConversationMessage[] = rawMessages.map((m: any) => ({
-    sender: m.sender as 'user' | 'ai',
-    content: String(m.content),
-    timestamp: new Date(m.timestamp),
-  }));
+    if (!rawSession) {
+      throw new Error(`Sesión con ID '${sessionId}' no encontrada.`);
+    }
 
-  return {
-    id: sessionId,
-    userId: String(raw.userId),
-    case: raw.caseSlug as CaseSlug,
-    level: raw.level as CompetencyLevel,
-    attemptNumber: Number(raw.attemptNumber),
-    startTime: new Date(raw.startTime),
-    endTime: raw.endTime ? new Date(raw.endTime) : undefined,
-    conversationHistory: messages,
-    passed: Boolean(raw.passed),
-  };
+    logger.debug('Sesión encontrada en getSession', { 
+      sessionId, 
+      rawSession: { id: rawSession.id, userId: rawSession.userId } 
+    });
+
+    // ❷ CRÍTICO: Query optimizada para mensajes usando record::id consistente
+    const messagesQuery = `
+      SELECT * FROM message 
+      WHERE record::id(sessionId) = $sessionId 
+      ORDER BY timestamp ASC
+    `;
+    
+    const messagesResponse = await db.query<[MessageRow[]]>(messagesQuery, {
+      sessionId: sessionId
+    });
+
+    const rawMessages = messagesResponse[0] || [];
+
+    const messages: IConversationMessage[] = rawMessages.map((m: MessageRow) => ({
+      sender: m.sender,
+      content: String(m.content),
+      timestamp: parseDate(m.timestamp), // ❅ Conversión coherente
+    }));
+
+    logger.success('Sesión recuperada', { 
+      sessionId, 
+      messageCount: messages.length 
+    });
+
+    return {
+      id: sessionId,
+      userId: String(rawSession.userId),
+      case: rawSession.caseSlug,
+      level: rawSession.level,
+      attemptNumber: Number(rawSession.attemptNumber),
+      startTime: parseDate(rawSession.startTime), // ❅ Conversión coherente
+      endTime: rawSession.endTime ? parseDate(rawSession.endTime) : undefined,
+      conversationHistory: messages,
+      passed: Boolean(rawSession.passed),
+    };
+
+  } catch (error) {
+    logger.error(`Error al obtener la sesión ${sessionId}`, error);
+    throw error;
+  }
 }
 
 /**
- * Añade un mensaje a la sesión (usuario o IA).
+ * ❶❸ Añade un mensaje a la sesión usando helper DRY.
  */
 export async function appendMessage(
   sessionId: string,
   msg: { sender: 'user' | 'ai'; content: string }
 ): Promise<IConversationMessage> {
   const now = new Date();
-  const messageId = `${sessionId}:${now.getTime()}`;
-  const rid = new RecordId('message', messageId);
+  
+  logger.info('Añadiendo mensaje a sesión', { sessionId, sender: msg.sender });
 
-  await db.create(rid, {
-    sessionId: new RecordId('session', sessionId),
-    sender: msg.sender,
-    content: msg.content,
-    timestamp: now,
-  });
+  try {
+    // ❸ Usar helper DRY
+    const sessionRecordId = await findSessionRecordId(sessionId);
+    
+    logger.debug('Sesión encontrada', { sessionRecordId });
 
-  return {
-    sender: msg.sender,
-    content: msg.content,
-    timestamp: now,
-  };
+    // ❼ En el futuro, esto podría ir en una transacción
+    await db.create<MessageRow>("message", {
+      sessionId: sessionRecordId,
+      sender: msg.sender,
+      content: msg.content,
+      timestamp: now, // ❅ Date object directo para SurrealDB
+    });
+
+    logger.success('Mensaje añadido exitosamente', { sessionId });
+
+    return {
+      sender: msg.sender,
+      content: msg.content,
+      timestamp: now,
+    };
+  } catch (error) {
+    logger.error(`Error al añadir mensaje a sesión ${sessionId}`, error);
+    throw error;
+  }
 }
 
 /**
- * Finaliza la sesión guardando el feedback.
+ * ❶❸ Finaliza la sesión usando helper DRY.
  */
 export async function finalizeSession(
   sessionId: string,
   feedback: IFeedbackReport
 ): Promise<IFeedbackReport> {
-  const fbRid = new RecordId('feedback', sessionId);
+  logger.info('Finalizando sesión', { sessionId });
 
-  await db.create(fbRid, {
-    sessionId: new RecordId('session', sessionId),
-    generalCommentary: feedback.generalCommentary,
-    competencyFeedback: feedback.competencyFeedback,
-    recommendations: feedback.recommendations,
-  });
+  try {
+    // ❸ Usar helper DRY
+    const sessionRecordId = await findSessionRecordId(sessionId);
+    
+    logger.debug('Sesión encontrada para finalizar', { sessionRecordId });
 
-  await db.update(
-    new RecordId('session', sessionId),
-    {
+    // ❼ En el futuro, estas operaciones podrían ir en una transacción
+    await db.create<FeedbackRow>("feedback", {
+      sessionId: sessionRecordId,
+      generalCommentary: feedback.generalCommentary,
+      competencyFeedback: feedback.competencyFeedback,
+      recommendations: feedback.recommendations,
+    });
+
+    // ❶ Usar record::id en lugar de string::split
+    const updateQuery = `
+      UPDATE session 
+      SET status = $status, endTime = $endTime, passed = $passed 
+      WHERE record::id(id) = $sessionId
+    `;
+    
+    await db.query(updateQuery, {
+      sessionId: sessionId,
       status: 'completed',
-      endTime: new Date(),
+      endTime: new Date(), // ❅ Date object directo para SurrealDB
       passed: feedback.competencyFeedback.every(
         (c) =>
           c.achievedLevel === CompetencyLevel.ORO ||
           c.achievedLevel === CompetencyLevel.PLATINO
       ),
-    }
-  );
+    });
 
-  return feedback;
+    logger.success('Sesión finalizada exitosamente', { sessionId });
+
+    return feedback;
+  } catch (error) {
+    logger.error(`Error al finalizar sesión ${sessionId}`, error);
+    throw error;
+  }
 }
 
 /**
- * Devuelve el feedback final de una sesión.
+ * ❁ Devuelve el feedback final de una sesión.
  */
-export async function getFeedback(
-  sessionId: string
-): Promise<IFeedbackReport | null> {
-  const fbs = await db.select<any>(new RecordId('feedback', sessionId));
-  if (!fbs.length) return null;
-  const raw = fbs[0] as any;
-  return {
-    generalCommentary: String(raw.generalCommentary),
-    competencyFeedback: raw.competencyFeedback as IFeedbackReport['competencyFeedback'],
-    recommendations: raw.recommendations as string[],
-  };
+export async function getFeedback(sessionId: string): Promise<IFeedbackReport | null> {
+  logger.info('Buscando feedback para sesión', { sessionId });
+
+  try {
+    // ❶ CRÍTICO: Usar record::id en lugar de string::split
+    const feedbackQuery = `
+      SELECT * FROM feedback 
+      WHERE record::id(sessionId) = $sessionId 
+      LIMIT 1
+    `;
+    
+    const result = await db.query<[FeedbackRow[]]>(feedbackQuery, {
+      sessionId: sessionId,
+    });
+
+    const rawFeedbackRecord = result[0]?.[0];
+
+    if (!rawFeedbackRecord) {
+      logger.info('No se encontró feedback para sesión', { sessionId });
+      return null;
+    }
+
+    logger.success('Feedback encontrado para sesión', { sessionId });
+
+    return {
+      generalCommentary: String(rawFeedbackRecord.generalCommentary || ''),
+      competencyFeedback: rawFeedbackRecord.competencyFeedback,
+      recommendations: Array.isArray(rawFeedbackRecord.recommendations) 
+        ? rawFeedbackRecord.recommendations.map((r: any) => String(r)) 
+        : [],
+    };
+  } catch (error) {
+    logger.error(`Error al obtener feedback de sesión ${sessionId}`, error);
+    throw error;
+  }
 }
 
 /**
@@ -196,132 +396,118 @@ export async function getAllCases(): Promise<ICase[]> {
   try {
     const cases = await db.select<any>('case');
     
-    // Limpiar los IDs para remover prefijos y caracteres Unicode
-    const cleanedCases = cases.map((caseItem: any) => {
-      let cleanId = caseItem.id;
-      
-      // Si el ID es un objeto RecordId, extraer solo la parte del ID
-      if (typeof cleanId === 'object' && cleanId.id) {
-        cleanId = cleanId.id;
-      }
-      
-      // Si es string, limpiar prefijos y caracteres Unicode
-      if (typeof cleanId === 'string') {
-        // Remover prefijo "case:" si existe
-        cleanId = cleanId.replace(/^case:/, '');
-        // Remover caracteres Unicode ⟨ y ⟩ (códigos 10216 y 10217)
-        cleanId = cleanId.replace(/⟨|⟩/g, '');
-      }
-      
+    const cleanedCases: ICase[] = cases.map((caseItem: any) => {
       return {
         ...caseItem,
-        id: cleanId
+        id: cleanCaseId(caseItem.id)
       };
     });
     
-    console.log('✅ Casos obtenidos y limpiados:', cleanedCases.map(c => ({ id: c.id, title: c.title })));
-    return cleanedCases as ICase[];
+    logger.success('Casos obtenidos y limpiados', { 
+      count: cleanedCases.length,
+      cases: cleanedCases.map(c => ({ 
+        id: c.id as string,
+        title: c.title 
+      }))
+    });
+    
+    return cleanedCases;
   } catch (error) {
-    console.error('❌ Error al obtener los casos desde la DB:', error);
+    logger.error('Error al obtener los casos desde la DB', error);
     return [];
   }
 }
 
 /**
  * Obtiene un caso específico por su slug.
- * @param caseSlug El slug del caso (ej. "la-boleta").
- * @returns Una promesa que se resuelve con la información del caso.
  */
 export async function getCaseBySlug(caseSlug: string): Promise<ICase | null> {
   try {
-    console.log(`🔍 Buscando caso con slug: ${caseSlug}`);
+    logger.info('Buscando caso con slug', { caseSlug });
     
-    // Usar db.query para buscar por slug con SurrealQL
     const query = 'SELECT * FROM case WHERE slug = $slug LIMIT 1;';
-    const result = await db.query(query, {
+    const result = await db.query<[any[]]>(query, {
       slug: caseSlug,
     });
 
-    console.log('🔍 DEBUG - Query caso ejecutada:', query);
-    console.log('🔍 DEBUG - Parámetros caso:', { slug: caseSlug });
-    console.log('🔍 DEBUG - Resultado caso completo:', JSON.stringify(result, null, 2));
+    logger.debug('Query caso ejecutada', { query, params: { slug: caseSlug } });
 
-    // Extraer el caso usando la misma estructura que funciona para levels
-    const queryResult = result as any[];
-    let caseInfo = queryResult[0]?.[0] || null;
+    let caseInfo = result[0]?.[0] || null;
     
     if (caseInfo) {
-      // Limpiar el ID del caso también
-      let cleanId = caseInfo.id;
-      if (typeof cleanId === 'object' && cleanId.id) {
-        cleanId = cleanId.id;
-      }
-      if (typeof cleanId === 'string') {
-        cleanId = cleanId.replace(/^case:/, '');
-        cleanId = cleanId.replace(/⟨|⟩/g, '');
-      }
-      
       caseInfo = {
         ...caseInfo,
-        id: cleanId
+        id: cleanCaseId(caseInfo.id)
       };
     }
 
-    console.log(`✅ Caso encontrado para slug ${caseSlug}:`, caseInfo ? { id: caseInfo.id, title: caseInfo.title } : null);
+    logger.success('Caso encontrado para slug', { 
+      caseSlug, 
+      found: !!caseInfo,
+      case: caseInfo ? { id: caseInfo.id as string, title: caseInfo.title } : null 
+    });
+    
     return caseInfo;
   } catch (error) {
-    console.error("❌ Error al obtener la información del caso:", error);
+    logger.error('Error al obtener la información del caso', error);
     return null;
   }
 }
 
 /**
  * Obtiene la información de un nivel específico para un caso.
- * @param caseSlug El slug del caso (ej. "la-boleta").
- * @param level El nivel a obtener (ej. "bronce").
- * @returns Una promesa que se resuelve con la información del nivel.
  */
 export async function getLevelInfo(
   caseSlug: string,
   level: string
 ): Promise<ILevel | null> {
   try {
-    // --- INICIO DE LA CORRECCIÓN CLAVE ---
-    // Usamos db.query para ejecutar SurrealQL nativo, tal como lo descubriste.
-    // Pasamos los valores como variables ($slug, $level) para seguridad.
     const query = 'SELECT * FROM level WHERE caseSlug = $slug AND level = $level LIMIT 1;';
-    const result = await db.query(query, {
+    const result = await db.query<[ILevel[]]>(query, {
       slug: caseSlug,
       level: level,
     });
 
-    // DEBUG: Vamos a ver exactamente qué devuelve db.query
-    console.log('🔍 DEBUG - Query ejecutada:', query);
-    console.log('🔍 DEBUG - Parámetros:', { slug: caseSlug, level: level });
-    console.log('🔍 DEBUG - Resultado completo de db.query:', JSON.stringify(result, null, 2));
-    console.log('🔍 DEBUG - Tipo de resultado:', typeof result);
-    console.log('🔍 DEBUG - Es array?:', Array.isArray(result));
-    if (Array.isArray(result) && result.length > 0) {
-      const firstElement = result[0] as any;
-      console.log('🔍 DEBUG - Primer elemento:', JSON.stringify(firstElement, null, 2));
-      console.log('🔍 DEBUG - result[0].result existe?:', firstElement?.result !== undefined);
-      if (firstElement?.result) {
-        console.log('🔍 DEBUG - result[0].result:', JSON.stringify(firstElement.result, null, 2));
-      }
-    }
+    logger.debug('Query nivel ejecutada', { 
+      query, 
+      params: { slug: caseSlug, level: level },
+      result: result 
+    });
 
-    // --- CORRECCIÓN: La estructura real es result[0][0], no result[0].result[0] ---
-    const queryResult = result as any[];
-    const levelInfo = queryResult[0]?.[0] || null;
-    console.log('✅ CORRECCIÓN - Extrayendo result[0][0]:', levelInfo);
-    console.log(`Resultado de la consulta de nivel para ${caseSlug}/${level}:`, levelInfo);
+    const levelInfo = result[0]?.[0] || null;
+    
+    logger.success('Resultado de la consulta de nivel', {
+      caseSlug,
+      level,
+      found: !!levelInfo,
+      levelInfo
+    });
+    
     return levelInfo;
-    // --- FIN DE LA CORRECCIÓN CLAVE ---
 
   } catch (error) {
-    console.error("❌ Error al obtener la información del nivel:", error);
+    logger.error('Error al obtener la información del nivel', error);
     return null;
   }
 }
+
+// ❿ Para testing - Queries de validación que puedes usar en smoke tests
+export const VALIDATION_QUERIES = {
+  testRecordId: (sessionId: string) => 
+    `SELECT id FROM session WHERE record::id(id) = '${sessionId}';`,
+  
+  testMetaId: (sessionId: string) => 
+    `SELECT id FROM session WHERE meta::id(id) = '${sessionId}';`,
+  
+  testTypeThing: (sessionId: string) => `
+    LET $sid = type::thing('session', '${sessionId}');
+    SELECT * FROM session WHERE id = $sid;
+  `,
+  
+  testMessageQuery: (sessionId: string) => `
+    LET $sid = type::thing('session', '${sessionId}');
+    SELECT * FROM message WHERE sessionId = $sid ORDER BY timestamp;
+  `
+};
 
 export { db };
