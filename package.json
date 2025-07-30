@@ -6,7 +6,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "db:schema": "ts-node --compiler-options '{\"module\":\"commonjs\"}' -r dotenv/config packages/database/createSchema.ts",
-    "db:seed:all": "pnpm run db:schema && ts-node --compiler-options '{\"module\":\"commonjs\"}' -r dotenv/config packages/database/seedAll.ts" 
+    "db:seed:all": "pnpm run db:schema && ts-node --compiler-options '{\"module\":\"commonjs\"}' -r dotenv/config packages/database/seedAll.ts",
+    "kb:embed": "cd apps/backend && ts-node src/scripts/embed-knowledge-base.ts"
   },
   "keywords": [
     "langgraph",
