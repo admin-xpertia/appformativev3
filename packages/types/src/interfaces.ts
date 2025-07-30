@@ -64,3 +64,17 @@ export interface IFeedbackReport {
   competencyFeedback: ICompetencyFeedback[];
   recommendations: string[];
 }
+
+export interface IProgressionLevel {
+  level: CompetencyLevel;
+  description: string; // Descripción de lo que se espera en este nivel
+  indicators: string[]; // Indicadores observables, ej: "Parafrasea al cliente"
+}
+
+export interface ICompetency {
+  [key: string]: any;
+  id: CompetencySlug;
+  name: string;
+  description: string;
+  progression: IProgressionLevel[]; // Un array con los 4 niveles
+}
