@@ -83,4 +83,13 @@ export interface ICompetencyFeedback {
   meetsIndicators?: boolean; // ✅ CAMBIO AÑADIDO
 }
 
+export interface IGrowthTask {
+  [key: string]: any; // Para compatibilidad con la base de datos
+  id: string;
+  userId: string;
+  description: string;
+  sourceSessionId: string;
+  completed: boolean;
+  createdAt: Date;
+}
 

@@ -758,10 +758,20 @@ export async function updateUserProgress(
   caseSlug: CaseSlug,
   newLevel: CompetencyLevel,
   highestLevelCompleted: CompetencyLevel | null,
-  attemptNumber: number // ✅ NUEVO PARÁMETRO OBLIGATORIO
+  currentAttemptNumber: number
 ) {
   const progressRecord = await getUserProgress(userId, caseSlug);
   const userRecordId = new RecordId('user', userId);
+
+  // --- INICIO DE LA LÓGICA CLAVE ---
+  let attemptNumberForNextLevel = currentAttemptNumber;
+  // Si el nivel actual del progreso es DIFERENTE al nuevo nivel,
+  // significa que el usuario ha subido de nivel, por lo tanto, reiniciamos los intentos.
+  if (progressRecord && progressRecord.currentLevel !== newLevel) {
+    attemptNumberForNextLevel = 0; // Se reinicia para que el próximo intento sea el 1
+    logger.info(`🎉 ¡Usuario ha subido de nivel! Reiniciando intentos a 0.`);
+  }
+  // --- FIN DE LA LÓGICA CLAVE ---
 
   if (progressRecord) {
     // Si ya existe, lo actualizamos
@@ -769,20 +779,20 @@ export async function updateUserProgress(
     await db.merge(recordId, {
       currentLevel: newLevel,
       highestLevelCompleted: highestLevelCompleted,
-      attemptNumberInCurrentLevel: attemptNumber, // ✅ ACTUALIZAR INTENTO
+      attemptNumberInCurrentLevel: attemptNumberForNextLevel, // ✅ Usamos el valor calculado
       userId: userRecordId, 
     });
-    logger.success('Progreso de usuario actualizado', { userId, caseSlug, newLevel, attemptNumber });
+    logger.success('Progreso de usuario actualizado', { userId, caseSlug, newLevel, attemptNumber: attemptNumberForNextLevel });
   } else {
-    // Si no existe, creamos un nuevo registro
+    // Si no existe, creamos un nuevo registro (siempre empieza con 1 intento)
     await db.create('user_progress', {
       userId: userRecordId,
       caseSlug,
       currentLevel: newLevel,
       highestLevelCompleted,
-      attemptNumberInCurrentLevel: attemptNumber, // ✅ GUARDAR INTENTO
+      attemptNumberInCurrentLevel: 1, // El primer registro siempre es el intento 1
     });
-    logger.success('Progreso de usuario creado', { userId, caseSlug, newLevel, attemptNumber });
+    logger.success('Progreso de usuario creado', { userId, caseSlug, newLevel, attemptNumber: 1 });
   }
 }
 

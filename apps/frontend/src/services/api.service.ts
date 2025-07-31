@@ -136,3 +136,22 @@ export const getSessionHistory = async (userId: string): Promise<ISimulationSess
   }
   return response.json();
 };
+
+export const getGrowthPlan = async (userId: string): Promise<any> => {
+  const response = await fetch(`${API_BASE_URL}/user/${userId}/growth-plan`);
+  if (!response.ok) {
+    throw new Error('Error al obtener el plan de crecimiento');
+  }
+  return response.json();
+};
+
+export const toggleTask = async (taskId: string): Promise<any> => {
+  const response = await fetch(`${API_BASE_URL}/task/${taskId}/toggle`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) {
+    throw new Error('Error al cambiar el estado de la tarea');
+  }
+  return response.json();
+};
