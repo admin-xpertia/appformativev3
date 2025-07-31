@@ -90,7 +90,7 @@ export function Dashboard({
     }
   };
 
-  // ✅ NUEVA FUNCIÓN: Continuar sesión específica para un caso
+  // ✅ FUNCIÓN CORREGIDA: Continuar sesión específica para un caso
   const handleContinueSpecificCase = async (caseItem: ICase) => {
     // Buscar la sesión activa para este caso específico
     const sessionForCase = activeSessions.find(session => 
@@ -177,16 +177,23 @@ export function Dashboard({
           Todos los Viajes
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {/* ✅ USAR enrichedCases en lugar de cases */}
-          {enrichedCases.map((caseItem) => (
-            <JourneyCard 
-              key={caseItem.id}
-              case={caseItem} 
-              onStart={() => onStartSimulation(caseItem)}
-              onContinue={() => handleContinueSpecificCase(caseItem)} // ✅ NUEVA PROP
-              isHighlighted={caseItem.id === suggestedCase?.id}
-            />
-          ))}
+          {/* ✅ CORRECCIÓN PRINCIPAL: Pasar todas las props requeridas */}
+          {enrichedCases.map((caseItem) => {
+            // Verificar si este caso específico tiene una sesión activa
+            const activeSessionForCase = activeSessions.find(session => 
+              session.case === caseItem.id || session.case === caseItem.slug
+            );
+
+            return (
+              <JourneyCard 
+                key={caseItem.id}
+                case={caseItem} 
+                onStart={() => onStartSimulation(caseItem)}
+                onContinue={() => handleContinueSpecificCase(caseItem)}
+                isHighlighted={caseItem.id === suggestedCase?.id && !pendingSession} // ✅ PROP REQUERIDA
+              />
+            );
+          })}
         </div>
       </section>
     </div>

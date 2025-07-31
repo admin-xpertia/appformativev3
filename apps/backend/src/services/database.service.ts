@@ -465,11 +465,11 @@ export async function getCasesForUser(userId: string): Promise<ICase[]> {
   try {
     const userRecordId = new RecordId('user', userId);
     
-    // Primero, obtenemos el progreso del usuario para saber qué casos ha jugado
-    const progressQuery = `SELECT * FROM user_progress WHERE userId = $user FETCH case;`;
+    // Obtenemos el progreso del usuario para saber qué casos ha jugado
+    const progressQuery = `SELECT * FROM user_progress WHERE userId = $user;`;
     const [progressData] = await db.query(progressQuery, { user: userRecordId });
 
-    // Luego, obtenemos la lista completa de todos los casos disponibles
+    // Obtenemos la lista completa de todos los casos disponibles
     const allCases = await db.select<ICase>('case');
 
     // Ahora, combinamos las dos listas
@@ -477,18 +477,18 @@ export async function getCasesForUser(userId: string): Promise<ICase[]> {
       // Buscamos si el usuario tiene un progreso guardado para este caso
       const progressForThisCase = (progressData as any[])?.find(p => p.caseSlug === caseInfo.slug);
       
-      // --- INICIO DE LA CORRECCIÓN CLAVE ---
-      // Limpiamos el ID complejo de SurrealDB a un string simple y limpio.
       const cleanId = String(caseInfo.id).replace(/case:|⟨|⟩/g, '');
-      // --- FIN DE LA CORRECCIÓN CLAVE ---
 
       return {
         ...caseInfo,
-        id: cleanId, // Enviamos el ID limpio al frontend
+        id: cleanId,
         currentLevel: progressForThisCase?.currentLevel ?? CompetencyLevel.BRONCE,
-        attempts: progressForThisCase ? `1 de 3` : '0 de 3', 
-        progress: progressForThisCase ? 33 : 0,
-        available: true, 
+        // --- INICIO DE LA CORRECCIÓN CLAVE ---
+        // Leemos el número de intentos REAL de la base de datos y lo formateamos.
+        attempts: `${progressForThisCase?.attemptNumberInCurrentLevel ?? 0} de 3`,
+        // --- FIN DE LA CORRECCIÓN CLAVE ---
+        progress: progressForThisCase ? 33 : 0, // Lógica de progreso pendiente
+        status: progressForThisCase?.status, // Pasamos el estado si existe
       };
     });
 
