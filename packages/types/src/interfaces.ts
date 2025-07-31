@@ -71,10 +71,13 @@ export interface IProgressionLevel {
   indicators: string[]; // Indicadores observables, ej: "Parafrasea al cliente"
 }
 
-export interface ICompetency {
-  [key: string]: any;
-  id: CompetencySlug;
-  name: string;
-  description: string;
-  progression: IProgressionLevel[]; // Un array con los 4 niveles
+export interface ICompetencyFeedback {
+  competency: CompetencySlug;
+  achievedLevel: CompetencyLevel;
+  strengths: string[];
+  areasForImprovement: string[];
+  justification: string;
+  meetsIndicators?: boolean; // ✅ CAMBIO AÑADIDO
 }
+
+

@@ -7,11 +7,16 @@ import cors from '@fastify/cors';
 // --- INICIO DE LA CORRECCIÓN ---
 // Importamos TODO el módulo como un solo objeto llamado 'databaseService'
 import * as databaseService from './services/database.service';
+// import { runFullEvaluation } from './agents/evaluation.chain'; // Importa el orquestador de evaluación
 // --- FIN DE LA CORRECCIÓN ---
 
 import { generateBriefing } from './agents/introduction.chain';
 import type { IFeedbackReport } from '@espacio-formativo/types';
+import { CaseSlug, CompetencyLevel } from '@espacio-formativo/types';
 import { simulationApp } from './flows/simulation.flow';
+
+// Constante para el orden de niveles de competencia
+const LEVEL_ORDER = [CompetencyLevel.BRONCE, CompetencyLevel.PLATA, CompetencyLevel.ORO, CompetencyLevel.PLATINO];
 
 const fastify = Fastify({ logger: true });
 
@@ -88,7 +93,7 @@ fastify.post<{
   return { briefing: briefingText };
 });
 
-// 4) Iniciar sesión - MEJORADO
+// 4) Iniciar sesión - MEJORADO CON LÓGICA DE PROGRESO
 fastify.post<{
   Body: { userId: string; caseSlug: string };
 }>('/api/session/start', async (request, reply) => {
@@ -114,15 +119,42 @@ fastify.post<{
   // --- FIN VALIDACIONES ---
 
   try {
-    console.log(`🎯 Creando nueva sesión para el caso: ${caseSlug}, usuario: ${userId}`);
+    console.log(`🎯 Verificando progreso del usuario: ${userId} para caso: ${caseSlug}`);
     
+    // 1. Obtener el progreso actual del usuario para este caso
+    let userProgress = await databaseService.getUserProgress(userId, caseSlug as CaseSlug);
+
+    // 2. Si el usuario nunca ha jugado este caso, creamos su registro de progreso inicial
+    if (!userProgress) {
+      console.log(`📝 Primera vez del usuario en este caso. Creando progreso inicial en BRONCE`);
+      await databaseService.updateUserProgress(
+        userId, 
+        caseSlug as CaseSlug, 
+        CompetencyLevel.BRONCE, 
+        CompetencyLevel.BRONCE
+      );
+      userProgress = await databaseService.getUserProgress(userId, caseSlug as CaseSlug);
+    }
+
+    console.log(`📊 Progreso actual del usuario:`, {
+      currentLevel: userProgress?.currentLevel,
+      highestLevelCompleted: userProgress?.highestLevelCompleted
+    });
+
+    // 3. Creamos la sesión con el nivel actual del usuario
+    const currentLevel = userProgress?.currentLevel || CompetencyLevel.BRONCE;
+    // NOTA: Por ahora createSession solo acepta 2 parámetros, después lo actualizaremos
     const newSession = await databaseService.createSession(userId, caseSlug);
+    
+    // TODO: Actualizar createSession para que acepte el level como tercer parámetro
+    console.log(`📌 Nivel actual del usuario: ${currentLevel} (sesión creada en nivel por defecto)`);
     
     console.log(`✅ Sesión creada exitosamente con ID: ${newSession.id}`);
     console.log(`📊 Datos de la sesión:`, {
       sessionId: newSession.id,
       case: newSession.case,
       level: newSession.level,
+      userCurrentLevel: currentLevel,
       startTime: newSession.startTime
     });
 
@@ -243,6 +275,96 @@ fastify.post<{
     return reply.status(500).send({ 
       error: 'No se pudo procesar el turno',
       details: error.message || 'Error desconocido'
+    });
+  }
+});
+
+// 🔥 NUEVO ENDPOINT: Evaluar sesión y actualizar progreso
+fastify.post<{
+  Params: { sessionId: string };
+}>('/api/session/:sessionId/evaluate', async (request, reply) => {
+  const { sessionId } = request.params;
+  fastify.log.info(`POST /api/session/${sessionId}/evaluate`);
+
+  try {
+    console.log(`🎯 Iniciando evaluación completa para sesión: ${sessionId}`);
+
+    // 1. Obtener la sesión y la conversación completa
+    const session = await databaseService.getSession(sessionId);
+    console.log(`📊 Sesión obtenida: Nivel ${session.level}, ${session.conversationHistory.length} mensajes`);
+
+    // 2. Obtener la rúbrica de evaluación para el nivel actual
+    const rubric = await databaseService.getCompetencyRubric(session.level as CompetencyLevel);
+    console.log(`📋 Rúbrica obtenida: ${rubric.length} competencias para evaluar`);
+
+    // 3. TODO: Ejecutar la evaluación completa (Auditor Normativo + Tutor de Competencias)
+    // const feedbackReport = await runFullEvaluation(session.conversationHistory, session.level, rubric);
+    
+    // 🚧 TEMPORAL: Mock del feedback mientras implementamos la evaluación real
+    const mockFeedbackReport: IFeedbackReport = {
+      generalCommentary: `Evaluación del nivel ${session.level} completada. El ejecutivo demostró comprensión de los conceptos básicos.`,
+      competencyFeedback: rubric.map((comp, index) => ({
+        competency: comp.competencySlug as any,
+        achievedLevel: session.level as any,
+        meetsIndicators: index < 4, // Mock: las primeras 4 competencias las cumple
+        strengths: [`Demostró ${comp.competencyName.toLowerCase()}`],
+        areasForImprovement: [`Continuar practicando ${comp.competencyName.toLowerCase()}`],
+        justification: `Basado en ${comp.indicator}`
+      })),
+      recommendations: [
+        'Continuar practicando la comunicación empática',
+        'Revisar procedimientos normativos',
+        'Practicar resolución de casos complejos'
+      ]
+    };
+
+    // 4. Lógica de Aprobación: ¿El usuario superó el nivel?
+    const passedCompetencies = mockFeedbackReport.competencyFeedback.filter(f => f.meetsIndicators).length;
+    const didPass = passedCompetencies >= 4; // Debe cumplir al menos 4 de 5 competencias
+
+    console.log(`📈 Resultado de evaluación: ${passedCompetencies}/5 competencias aprobadas. ¿Aprobó? ${didPass}`);
+
+    // 5. Finalizar la sesión en la base de datos con el veredicto
+    await databaseService.finalizeSession(sessionId, mockFeedbackReport);
+
+    // 6. Si aprobó, actualizar su progreso al siguiente nivel
+    if (didPass) {
+      const currentLevelIndex = LEVEL_ORDER.indexOf(session.level as CompetencyLevel);
+      const nextLevel = LEVEL_ORDER[currentLevelIndex + 1] || CompetencyLevel.PLATINO; // Si ya está en platino, se queda ahí
+
+      if (nextLevel !== session.level) {
+        console.log(`🎉 ¡Usuario aprobó! Avanzando de ${session.level} a ${nextLevel}`);
+        await databaseService.updateUserProgress(
+          session.userId, 
+          session.case as CaseSlug, 
+          nextLevel, 
+          session.level as CompetencyLevel
+        );
+      } else {
+        console.log(`🏆 ¡Usuario mantiene el nivel máximo: ${session.level}!`);
+      }
+    } else {
+      console.log(`📚 Usuario necesita más práctica en nivel ${session.level}`);
+    }
+
+    // 7. Devolver el feedback al frontend
+    return {
+      ...mockFeedbackReport,
+      passed: didPass,
+      currentLevel: session.level,
+      nextLevel: didPass ? (LEVEL_ORDER[LEVEL_ORDER.indexOf(session.level as CompetencyLevel) + 1] || session.level) : session.level,
+      passedCompetencies,
+      totalCompetencies: mockFeedbackReport.competencyFeedback.length
+    };
+
+  } catch (error) {
+    console.error(`❌ Error al evaluar la sesión ${sessionId}:`, error);
+    fastify.log.error(error);
+    
+    const err = error as Error;
+    return reply.status(500).send({ 
+      error: 'Hubo un problema al generar la evaluación.',
+      details: err.message || 'Error desconocido'
     });
   }
 });

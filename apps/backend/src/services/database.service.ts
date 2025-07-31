@@ -300,7 +300,7 @@ export async function appendMessage(
 }
 
 /**
- * ❶❸ Finaliza la sesión usando helper DRY.
+ * ❶❃ Finaliza la sesión usando helper DRY.
  */
 export async function finalizeSession(
   sessionId: string,
@@ -488,6 +488,89 @@ export async function getLevelInfo(
   } catch (error) {
     logger.error('Error al obtener la información del nivel', error);
     return null;
+  }
+}
+
+/**
+ * Obtiene la rúbrica de evaluación completa para un nivel específico.
+ * Consulta las tablas 'competency' y 'competency_progression'.
+ */
+export async function getCompetencyRubric(level: CompetencyLevel): Promise<any[]> {
+  try {
+    // Esta consulta une las dos tablas para obtener la descripción de la competencia
+    // y la descripción del nivel (que usaremos como indicador).
+    const query = `
+      SELECT 
+        c.name as competencyName,
+        c.slug as competencySlug,
+        cp.level,
+        cp.description as indicator
+      FROM competency AS c 
+      INNER JOIN competency_progression AS cp ON c.slug = cp.competencySlug
+      WHERE cp.level = $level;
+    `;
+    const result = await db.query<[any[]]>(query, { level });
+    const rubric = result[0] || [];
+    
+    logger.success(`Rúbrica obtenida para el nivel ${level}`, { count: rubric.length });
+    return rubric;
+  } catch (error) {
+    logger.error(`Error al obtener la rúbrica para el nivel ${level}`, error);
+    return [];
+  }
+}
+
+/**
+ * Obtiene el progreso actual de un usuario para un caso específico.
+ */
+export async function getUserProgress(userId: string, caseSlug: CaseSlug) {
+  try {
+    const query = 'SELECT * FROM user_progress WHERE userId = $userId AND caseSlug = $caseSlug LIMIT 1;';
+    const result = await db.query<[any[]]>(query, { userId, caseSlug });
+    
+    const progressRecord = result[0]?.[0] || null;
+    
+    logger.success('Progreso de usuario consultado', { 
+      userId, 
+      caseSlug, 
+      found: !!progressRecord 
+    });
+    
+    return progressRecord;
+  } catch (error) {
+    logger.error(`Error al obtener progreso de usuario ${userId} para caso ${caseSlug}`, error);
+    return null;
+  }
+}
+
+/**
+ * Actualiza el progreso de un usuario o crea un nuevo registro si no existe.
+ */
+export async function updateUserProgress(userId: string, caseSlug: CaseSlug, newLevel: CompetencyLevel, highestLevelCompleted: CompetencyLevel) {
+  try {
+    const progressRecord = await getUserProgress(userId, caseSlug);
+
+    if (progressRecord) {
+      // Si ya existe, lo actualizamos
+      const recordId = (progressRecord as any).id;
+      await db.merge(recordId, {
+        currentLevel: newLevel,
+        highestLevelCompleted: highestLevelCompleted,
+      });
+      logger.success('Progreso de usuario actualizado', { userId, caseSlug, newLevel });
+    } else {
+      // Si no existe, creamos un nuevo registro
+      await db.create('user_progress', {
+        userId,
+        caseSlug,
+        currentLevel: newLevel,
+        highestLevelCompleted,
+      });
+      logger.success('Progreso de usuario creado', { userId, caseSlug, newLevel });
+    }
+  } catch (error) {
+    logger.error(`Error al actualizar progreso de usuario ${userId} para caso ${caseSlug}`, error);
+    throw error;
   }
 }
 

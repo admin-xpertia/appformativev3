@@ -1,33 +1,22 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "es2021",
     "module": "commonjs",
-    "lib": ["ES2020"],
     "outDir": "./dist",
-    "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "allowSyntheticDefaultImports": true,
-    "moduleDetection": "force",
-    "noEmitOnError": false,
-    "declaration": true,
-    "sourceMap": true
+    // --- INICIO DE LA CORRECCIÓN CLAVE ---
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+    // --- FIN DE LA CORRECCIÓN CLAVE ---
   },
   "include": [
-    "src/**/*",
-    "knowledge/**/*.json"
+    "src/**/*.ts", // Incluye todo el código de tu backend
+    "../packages/types/src/**/*.ts" // Le dice a TS que es aceptable mirar aquí también
   ],
-  "exclude": [
-    "node_modules",
-    "dist"
-  ],
-  "ts-node": {
-    "esm": false,
-    "compilerOptions": {
-      "module": "CommonJS"
-    }
-  }
+  "exclude": ["node_modules"]
 }
