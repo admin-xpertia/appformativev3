@@ -3,14 +3,17 @@ import { CaseSlug, CompetencySlug, CompetencyLevel } from "./enums";
 
 export interface ICase {
   [key: string]: any;
-  id: CaseSlug;
-  slug: string;
+  // --- INICIO DE LA CORRECCIÓN CLAVE ---
+  id: string; // Cambiamos CaseSlug por string para mayor flexibilidad
+  // --- FIN DE LA CORRECCIÓN CLAVE ---
+  slug: CaseSlug; // Mantenemos el slug con el tipo estricto del enum
   title: string;
   currentLevel?: CompetencyLevel;
   attempts?: string;
   progress?: number;
   available?: boolean;
   lastAttempt?: string;
+  status?: 'in_progress' | 'pending'; // ✅ NUEVO CAMPO OPCIONAL
 }
 
 export interface ILevel {

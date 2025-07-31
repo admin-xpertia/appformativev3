@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useRef, useEffect } from "react"
-import { ArrowLeft, Send, Sidebar as SidebarIcon, X, Trophy } from "lucide-react"
+import { ArrowLeft, Send, Sidebar, X, Trophy } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { sendTurn, finalizeSession } from "@/services/api.service"
@@ -137,13 +137,7 @@ export function SimulationView({
       setIsTyping(true);
       
       // ✅ CORREGIDO: Usar objeto vacío o propiedades mínimas
-      // Opción 1: Objeto vacío (más seguro)
       const feedbackReport: IFeedbackReport = {} as IFeedbackReport;
-      
-      // Opción 2: Si conoces las propiedades correctas, descomenta y usa:
-      // const feedbackReport: IFeedbackReport = {
-      //   // Añade aquí solo las propiedades que realmente existen en IFeedbackReport
-      // };
       
       const response = await finalizeSession(session.id, feedbackReport);
       handleSimulationComplete(response);
@@ -217,12 +211,16 @@ export function SimulationView({
 
   return (
     <div
-      className={`h-[calc(100vh-64px)] flex flex-col bg-white transition-all duration-300 ${
-        sidebarVisible ? "ml-[280px]" : "ml-0"
-      }`}
-      style={{ marginTop: "64px" }}
+      className="h-[calc(100vh-64px)] flex flex-col bg-white"
+      style={{ 
+        marginTop: "64px",
+        width: "100%",
+        marginLeft: sidebarVisible ? "280px" : "0px",
+        transition: "margin-left 0.3s ease",
+        position: "relative"
+      }}
     >
-      {/* ✅ HEADER con estado actualizado */}
+      {/* ✅ HEADER con estado actualizado - DISEÑO ORIGINAL */}
       <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-white">
         <div className="flex items-center gap-4">
           <Button variant="ghost" onClick={onBack} className="hover:bg-gray-100">
@@ -235,7 +233,7 @@ export function SimulationView({
             className="hover:bg-gray-100"
             title={sidebarVisible ? "Ocultar panel" : "Mostrar panel"}
           >
-            {sidebarVisible ? <X className="w-4 h-4" /> : <SidebarIcon className="w-4 h-4" />}
+            {sidebarVisible ? <X className="w-4 h-4" /> : <Sidebar className="w-4 h-4" />}
           </Button>
           <div>
             <h2 className="text-lg font-semibold text-gray-800">
@@ -251,7 +249,7 @@ export function SimulationView({
         </Badge>
       </div>
 
-      {/* ✅ MESSAGES AREA */}
+      {/* ✅ MESSAGES AREA - DISEÑO ORIGINAL PRESERVADO */}
       <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
         <div className="space-y-3 max-w-4xl mx-auto">
           {messages.map((message, index) => (
@@ -279,7 +277,7 @@ export function SimulationView({
             </div>
           ))}
 
-          {/* ✅ INDICADOR DE TYPING */}
+          {/* ✅ INDICADOR DE TYPING - DISEÑO ORIGINAL */}
           {isTyping && (
             <div className="flex justify-start">
               <div
@@ -338,7 +336,7 @@ export function SimulationView({
         </div>
       </div>
 
-      {/* ✅ INPUT AREA ACTUALIZADA */}
+      {/* ✅ INPUT AREA - DISEÑO ORIGINAL PRESERVADO CON FUNCIONALIDAD NUEVA */}
       <div className="p-4 bg-white border-t border-gray-100">
         <div className="max-w-4xl mx-auto">
           {/* 🔥 BOTÓN DE FINALIZACIÓN MANUAL */}

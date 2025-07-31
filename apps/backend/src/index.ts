@@ -15,6 +15,7 @@ import type { IFeedbackReport } from '@espacio-formativo/types';
 import { CaseSlug, CompetencyLevel } from '@espacio-formativo/types';
 import { simulationApp } from './flows/simulation.flow';
 
+
 // Constante para el orden de niveles de competencia
 const LEVEL_ORDER = [CompetencyLevel.BRONCE, CompetencyLevel.PLATA, CompetencyLevel.ORO, CompetencyLevel.PLATINO];
 
@@ -23,14 +24,19 @@ const fastify = Fastify({ logger: true });
 fastify.register(cors, { origin: '*' });
 
 // 1) Casos
-fastify.get('/api/cases', async (_req, reply) => {
-  fastify.log.info('GET /api/cases');
+fastify.get<{
+  Params: { userId: string };
+}>('/api/cases/:userId', async (request, reply) => {
+  const { userId } = request.params;
+  fastify.log.info(`GET /api/cases for user: ${userId}`);
+  
   try {
-    const cases = await databaseService.getAllCases();
+    // Llamamos directamente a la función personalizada, que es la única que necesitamos.
+    const cases = await databaseService.getCasesForUser(userId);
     return cases;
   } catch (err) {
     fastify.log.error(err);
-    return reply.status(500).send({ error: 'No se pudieron obtener los casos' });
+    return reply.status(500).send({ error: 'No se pudieron obtener los casos del usuario' });
   }
 });
 
@@ -46,6 +52,32 @@ fastify.get<{
     { competency: 'comunicacion-efectiva', progress: 60, level: 'plata' },
     { competency: 'integridad', progress: 85, level: 'oro' },
   ];
+});
+
+fastify.get('/api/user/:userId/active-sessions', async (request, reply) => {
+  const { userId } = request.params as { userId: string };
+  fastify.log.info(`GET /api/user/${userId}/active-sessions`);
+
+  try {
+    const activeSessions = await databaseService.getActiveSessionsForUser(userId);
+    return activeSessions;
+  } catch (err) {
+    fastify.log.error(err);
+    return reply.status(500).send({ error: 'No se pudieron obtener las sesiones activas' });
+  }
+});
+
+fastify.get('/api/user/:userId/history', async (request, reply) => {
+  const { userId } = request.params as { userId: string };
+  fastify.log.info(`GET /api/user/${userId}/history`);
+
+  try {
+    const sessionHistory = await databaseService.getSessionHistoryForUser(userId);
+    return sessionHistory;
+  } catch (err) {
+    fastify.log.error(err);
+    return reply.status(500).send({ error: 'No se pudo obtener el historial de sesiones' });
+  }
 });
 
 // 3) Briefing - CORREGIDO PARA OBTENER CASE TITLE
@@ -93,7 +125,7 @@ fastify.post<{
   return { briefing: briefingText };
 });
 
-// 4) Iniciar sesión - MEJORADO CON LÓGICA DE PROGRESO
+// 4) Iniciar sesión - ✅ CORREGIDO CON NUEVAS FIRMAS DE FUNCIONES
 fastify.post<{
   Body: { userId: string; caseSlug: string };
 }>('/api/session/start', async (request, reply) => {
@@ -127,33 +159,37 @@ fastify.post<{
     // 2. Si el usuario nunca ha jugado este caso, creamos su registro de progreso inicial
     if (!userProgress) {
       console.log(`📝 Primera vez del usuario en este caso. Creando progreso inicial en BRONCE`);
+      // ✅ CORREGIDO: Añadir attemptNumber (1 para primera vez)
       await databaseService.updateUserProgress(
         userId, 
         caseSlug as CaseSlug, 
         CompetencyLevel.BRONCE, 
-        CompetencyLevel.BRONCE
+        null, // highestLevelCompleted es null para primera vez
+        1 // ✅ NUEVO: attemptNumber = 1 para primera vez
       );
       userProgress = await databaseService.getUserProgress(userId, caseSlug as CaseSlug);
     }
 
     console.log(`📊 Progreso actual del usuario:`, {
       currentLevel: userProgress?.currentLevel,
-      highestLevelCompleted: userProgress?.highestLevelCompleted
+      highestLevelCompleted: userProgress?.highestLevelCompleted,
+      attemptNumber: userProgress?.attemptNumberInCurrentLevel
     });
 
-    // 3. Creamos la sesión con el nivel actual del usuario
+    // 3. ✅ CORREGIDO: Creamos la sesión con el nivel actual del usuario (nueva firma)
     const currentLevel = userProgress?.currentLevel || CompetencyLevel.BRONCE;
-    // NOTA: Por ahora createSession solo acepta 2 parámetros, después lo actualizaremos
-    const newSession = await databaseService.createSession(userId, caseSlug);
-    
-    // TODO: Actualizar createSession para que acepte el level como tercer parámetro
-    console.log(`📌 Nivel actual del usuario: ${currentLevel} (sesión creada en nivel por defecto)`);
+    const newSession = await databaseService.createSession(
+      userId, 
+      caseSlug, 
+      currentLevel // ✅ NUEVO: Pasar currentLevel como tercer parámetro
+    );
     
     console.log(`✅ Sesión creada exitosamente con ID: ${newSession.id}`);
     console.log(`📊 Datos de la sesión:`, {
       sessionId: newSession.id,
       case: newSession.case,
       level: newSession.level,
+      attemptNumber: newSession.attemptNumber, // ✅ NUEVO: Mostrar attemptNumber
       userCurrentLevel: currentLevel,
       startTime: newSession.startTime
     });
@@ -279,7 +315,7 @@ fastify.post<{
   }
 });
 
-// ✅ ENDPOINT FINAL: EVALUACIÓN Y PROGRESIÓN CON PROGRAMACIÓN DEFENSIVA
+// ✅ ENDPOINT FINAL: EVALUACIÓN Y PROGRESIÓN CORREGIDO
 fastify.post<{
   Params: { sessionId: string };
 }>('/api/session/:sessionId/evaluate', async (request, reply) => {
@@ -320,7 +356,7 @@ fastify.post<{
     // 4. Finalizar la sesión en la base de datos con el veredicto
     await databaseService.finalizeSession(sessionId, feedbackReport);
 
-    // 5. Si aprobó, actualizar su progreso al siguiente nivel
+    // 5. ✅ CORREGIDO: Si aprobó, actualizar su progreso al siguiente nivel con attemptNumber
     if (didPass) {
       console.log(`🏆 ¡Nivel superado! Actualizando progreso del usuario...`);
       
@@ -336,16 +372,32 @@ fastify.post<{
         ? levelOrderStrings[currentLevelIndex + 1]
         : "platino";
       
+      // ✅ CORREGIDO: Añadir attemptNumber (1 para nuevo nivel)
       await databaseService.updateUserProgress(
         session.userId, 
         session.case, 
         nextLevel as CompetencyLevel, 
-        session.level
+        session.level, // highestLevelCompleted es el nivel que acaba de superar
+        1 // ✅ NUEVO: attemptNumber = 1 cuando avanza de nivel
       );
 
       console.log(`🎉 Progreso actualizado: ${session.level} → ${nextLevel}`);
     } else {
       console.log(`📚 Usuario necesita más práctica en nivel ${session.level}`);
+      
+      // ✅ NUEVO: Mantener el progreso actual pero incrementar attemptNumber
+      const currentProgress = await databaseService.getUserProgress(session.userId, session.case);
+      const nextAttemptNumber = (currentProgress?.attemptNumberInCurrentLevel || 0) + 1;
+      
+      await databaseService.updateUserProgress(
+        session.userId,
+        session.case,
+        session.level as CompetencyLevel,
+        currentProgress?.highestLevelCompleted || null,
+        nextAttemptNumber // ✅ NUEVO: Incrementar intento en el mismo nivel
+      );
+      
+      console.log(`📈 Progreso actualizado: Intento ${nextAttemptNumber} en nivel ${session.level}`);
     }
 
     // Usar LEVEL_ORDER para calcular el siguiente nivel en la respuesta
@@ -436,6 +488,20 @@ fastify.post<{
       details: error.message || 'Error desconocido'
     });
   }
+});
+
+// NUEVO ENDPOINT: OBTENER PLAN DE CRECIMIENTO
+fastify.get('/api/user/:userId/growth-plan', async (request, reply) => {
+  const { userId } = request.params as { userId: string };
+  const tasks = await databaseService.getGrowthPlanForUser(userId);
+  return tasks;
+});
+
+// NUEVO ENDPOINT: MARCAR TAREA COMO COMPLETADA/PENDIENTE
+fastify.post('/api/task/:taskId/toggle', async (request, reply) => {
+  const { taskId } = request.params as { taskId: string };
+  const updatedTask = await databaseService.toggleGrowthTask(taskId);
+  return updatedTask;
 });
 
 // Levantar servidor

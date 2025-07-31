@@ -11,14 +11,36 @@ import {
 const db = new Surreal();
 
 // === ❸ UTILIDADES DRY ===
-// Helper para encontrar el RecordId de una sesión
+// Helper para encontrar el RecordId de una sesión - Robusto para ambos formatos
 async function findSessionRecordId(sessionId: string): Promise<RecordId> {
-  const query = 'SELECT id FROM session WHERE record::id(id) = $sessionId LIMIT 1;';
-  const result = await db.query<[{ id: RecordId }[]]>(query, { sessionId });
+  // ✅ Consulta robusta que maneja tanto IDs limpios como RecordIds completos
+  const sessionRecordId = new RecordId('session', sessionId);
+  const query = `
+    SELECT id FROM session 
+    WHERE (record::id(id) = $sessionId OR id = $sessionRecordId) 
+    LIMIT 1
+  `;
+  
+  logger.debug('Buscando sesión por ID', { 
+    sessionId, 
+    sessionRecordId: sessionRecordId.toString() 
+  });
+  
+  const result = await db.query<[{ id: RecordId }[]]>(query, { 
+    sessionId, 
+    sessionRecordId 
+  });
   
   if (!result[0]?.[0]) {
+    logger.error(`Sesión ${sessionId} no encontrada`, { 
+      searchedFor: { sessionId, sessionRecordId: sessionRecordId.toString() }
+    });
     throw new Error(`Sesión ${sessionId} no encontrada`);
   }
+  
+  logger.debug('Sesión encontrada', { 
+    foundId: result[0][0].id.toString() 
+  });
   
   return result[0][0].id;
 }
@@ -62,10 +84,16 @@ function cleanCaseId(id: any): CaseSlug {
   return cleanId as CaseSlug;
 }
 
+// Función auxiliar para limpiar RecordId y extraer solo el ID
+function cleanRecordId(recordId: RecordId | string): string {
+  const idString = String(recordId);
+  return idString.split(':')[1] || idString;
+}
+
 // === TIPOS PARA LA BASE DE DATOS ===
 type SessionRow = {
   id?: RecordId | string;
-  userId: string;
+  userId: string; // ✅ CORREGIDO: session table usa string para userId
   caseSlug: CaseSlug;
   level: CompetencyLevel;
   attemptNumber: number;
@@ -92,13 +120,24 @@ type FeedbackRow = {
 };
 
 type NewSessionData = {
-  userId: string;
+  userId: string; // ✅ CORREGIDO: session table usa string para userId
   caseSlug: CaseSlug;
   level: CompetencyLevel;
   attemptNumber: number;
   status: string;
-  startTime: Date; // ❺ Date object para SurrealDB
+  startTime: Date;
   passed: boolean;
+};
+
+// ✅ Nuevo tipo para el progreso del usuario
+type UserProgressRow = {
+  id?: RecordId | string;
+  userId: RecordId | string; // ✅ user_progress table usa RecordId para userId
+  caseSlug: CaseSlug;
+  currentLevel: CompetencyLevel;
+  highestLevelCompleted?: CompetencyLevel | null;
+  attemptNumberInCurrentLevel: number;
+  lastUpdated?: Date | string;
 };
 
 // === ❺ UTILIDADES PARA FECHAS COHERENTES ===
@@ -137,64 +176,50 @@ export async function connectToDB() {
 }
 
 /**
- * Crea una nueva sesión de simulación.
+ * ✅ Crea una nueva sesión de simulación de manera inteligente.
+ * Lee el progreso del usuario para determinar el número de intento correcto.
  */
 export async function createSession(
   userId: string,
-  caseSlug: string
+  caseSlug: string,
+  currentLevel: CompetencyLevel
 ): Promise<ISimulationSession> {
-  const slug = caseSlug as CaseSlug;
-  const now = new Date();
+  const userProgress = await getUserProgress(userId, caseSlug as CaseSlug);
+  const attemptNumber = (userProgress?.attemptNumberInCurrentLevel || 0) + 1;
 
-  const newSessionData: NewSessionData = {
+  // ✅ CORRECCIÓN: db.create espera un objeto Date, no un string ISO.
+  const [createdSession] = await db.create<SessionRow>("session", {
     userId,
-    caseSlug: slug,
-    level: CompetencyLevel.BRONCE,
-    attemptNumber: 1,
+    caseSlug: caseSlug as CaseSlug,
+    level: currentLevel,
+    attemptNumber: attemptNumber,
     status: 'in_progress',
-    startTime: now, // ❅ Date object directo para SurrealDB
+    // --- LA CORRECCIÓN CLAVE ---
+    startTime: new Date(), // Pasamos el objeto Date directamente
+    // --- FIN DE LA CORRECCIÓN ---
     passed: false,
+  });
+
+  await updateUserProgress(
+    userId, 
+    caseSlug as CaseSlug, 
+    currentLevel, 
+    userProgress?.highestLevelCompleted || null, 
+    attemptNumber
+  );
+  
+  const sessionId = String(createdSession.id.id);
+
+  return {
+    id: sessionId,
+    userId: createdSession.userId,
+    case: createdSession.caseSlug,
+    level: createdSession.level,
+    attemptNumber: createdSession.attemptNumber,
+    startTime: new Date(createdSession.startTime),
+    conversationHistory: [],
+    passed: createdSession.passed,
   };
-
-  try {
-    logger.info('Creando sesión en la tabla session', { userId, caseSlug: slug });
-    
-    // ❹ Con tipado genérico para mejor type safety
-    const createdRecords = await db.create<SessionRow>("session", newSessionData);
-
-    let createdSession: SessionRow;
-    if (Array.isArray(createdRecords)) {
-      if (createdRecords.length === 0) {
-        throw new Error("La creación de la sesión no devolvió un registro.");
-      }
-      createdSession = createdRecords[0];
-    } else {
-      createdSession = createdRecords;
-    }
-    
-    // ❶ Usar record::id en lugar de string::split
-    const sessionId = String(createdSession.id).split(':')[1] || '';
-    
-    logger.success('Sesión creada en la BD', { sessionId });
-    
-    const finalSession: ISimulationSession = {
-      id: sessionId,
-      userId: String(createdSession.userId),
-      case: createdSession.caseSlug,
-      level: createdSession.level,
-      attemptNumber: Number(createdSession.attemptNumber),
-      startTime: parseDate(createdSession.startTime), // ❅ Conversión coherente
-      endTime: createdSession.endTime ? parseDate(createdSession.endTime) : undefined,
-      conversationHistory: [],
-      passed: Boolean(createdSession.passed),
-    };
-
-    return finalSession;
-
-  } catch (error) {
-    logger.error('Error durante la creación de la sesión', error);
-    throw error;
-  }
 }
 
 /**
@@ -219,37 +244,59 @@ export async function getSession(sessionId: string): Promise<ISimulationSession>
       rawSession: { id: rawSession.id, userId: rawSession.userId } 
     });
 
-    // ❷ CRÍTICO: Query optimizada para mensajes usando record::id consistente
+    // ❷ CRÍTICO: Query robusta para mensajes que maneja ambos formatos
+    const sessionRecordId = new RecordId('session', sessionId);
     const messagesQuery = `
       SELECT * FROM message 
-      WHERE record::id(sessionId) = $sessionId 
+      WHERE (sessionId = $sessionString OR sessionId = $sessionRecordId OR record::id(sessionId) = $sessionId)
       ORDER BY timestamp ASC
     `;
     
+    logger.debug('Consultando mensajes para sesión', { 
+      sessionId, 
+      sessionRecordId: sessionRecordId.toString() 
+    });
+    
     const messagesResponse = await db.query<[MessageRow[]]>(messagesQuery, {
-      sessionId: sessionId
+      sessionId: sessionId,
+      sessionString: sessionId,
+      sessionRecordId: sessionRecordId
     });
 
     const rawMessages = messagesResponse[0] || [];
 
+    logger.debug('Mensajes encontrados raw', { 
+      count: rawMessages.length,
+      firstMessage: rawMessages[0] ? {
+        id: rawMessages[0].id,
+        sender: rawMessages[0].sender,
+        content: rawMessages[0].content?.substring(0, 50) + '...',
+        sessionId: rawMessages[0].sessionId
+      } : null
+    });
+
     const messages: IConversationMessage[] = rawMessages.map((m: MessageRow) => ({
       sender: m.sender,
       content: String(m.content),
-      timestamp: parseDate(m.timestamp), // ❅ Conversión coherente
+      timestamp: parseDate(m.timestamp),
     }));
 
     logger.success('Sesión recuperada', { 
       sessionId, 
-      messageCount: messages.length 
+      messageCount: messages.length,
+      messages: messages.map(m => ({ 
+        sender: m.sender, 
+        content: m.content.substring(0, 30) + '...' 
+      }))
     });
 
     return {
       id: sessionId,
-      userId: String(rawSession.userId),
+      userId: String(rawSession.userId), // ✅ CORREGIDO: userId ya es string, no necesita limpieza
       case: rawSession.caseSlug,
       level: rawSession.level,
       attemptNumber: Number(rawSession.attemptNumber),
-      startTime: parseDate(rawSession.startTime), // ❅ Conversión coherente
+      startTime: parseDate(rawSession.startTime),
       endTime: rawSession.endTime ? parseDate(rawSession.endTime) : undefined,
       conversationHistory: messages,
       passed: Boolean(rawSession.passed),
@@ -273,20 +320,41 @@ export async function appendMessage(
   logger.info('Añadiendo mensaje a sesión', { sessionId, sender: msg.sender });
 
   try {
-    // ❸ Usar helper DRY
+    // ❃ Usar helper DRY para obtener RecordId
     const sessionRecordId = await findSessionRecordId(sessionId);
     
-    logger.debug('Sesión encontrada', { sessionRecordId });
+    logger.debug('Sesión encontrada para mensaje', { 
+      sessionId, 
+      sessionRecordId: sessionRecordId.toString() 
+    });
 
     // ❼ En el futuro, esto podría ir en una transacción
-    await db.create<MessageRow>("message", {
+    const createdMessage = await db.create<MessageRow>("message", {
       sessionId: sessionRecordId,
       sender: msg.sender,
       content: msg.content,
-      timestamp: now, // ❅ Date object directo para SurrealDB
+      timestamp: now,
     });
 
-    logger.success('Mensaje añadido exitosamente', { sessionId });
+    // ✅ Manejo seguro de tipos con casting explícito
+    let messageId: string = 'unknown';
+    try {
+      if (Array.isArray(createdMessage) && createdMessage.length > 0) {
+        const firstMessage = createdMessage[0] as any;
+        messageId = firstMessage?.id ? String(firstMessage.id) : 'unknown';
+      } else if (createdMessage) {
+        const singleMessage = createdMessage as any;
+        messageId = singleMessage?.id ? String(singleMessage.id) : 'unknown';
+      }
+    } catch (e) {
+      // Silently handle type issues
+      messageId = 'unknown';
+    }
+
+    logger.success('Mensaje añadido exitosamente', { 
+      sessionId,
+      messageId
+    });
 
     return {
       sender: msg.sender,
@@ -309,7 +377,7 @@ export async function finalizeSession(
   logger.info('Finalizando sesión', { sessionId });
 
   try {
-    // ❸ Usar helper DRY
+    // ❃ Usar helper DRY
     const sessionRecordId = await findSessionRecordId(sessionId);
     
     logger.debug('Sesión encontrada para finalizar', { sessionRecordId });
@@ -332,7 +400,7 @@ export async function finalizeSession(
     await db.query(updateQuery, {
       sessionId: sessionId,
       status: 'completed',
-      endTime: new Date(), // ❅ Date object directo para SurrealDB
+      endTime: new Date(),
       passed: feedback.competencyFeedback.every(
         (c) =>
           c.achievedLevel === CompetencyLevel.ORO ||
@@ -392,31 +460,166 @@ export async function getFeedback(sessionId: string): Promise<IFeedbackReport | 
 /**
  * Obtiene todos los casos.
  */
-export async function getAllCases(): Promise<ICase[]> {
+
+export async function getCasesForUser(userId: string): Promise<ICase[]> {
   try {
-    const cases = await db.select<any>('case');
+    const userRecordId = new RecordId('user', userId);
     
-    const cleanedCases: ICase[] = cases.map((caseItem: any) => {
+    // Primero, obtenemos el progreso del usuario para saber qué casos ha jugado
+    const progressQuery = `SELECT * FROM user_progress WHERE userId = $user FETCH case;`;
+    const [progressData] = await db.query(progressQuery, { user: userRecordId });
+
+    // Luego, obtenemos la lista completa de todos los casos disponibles
+    const allCases = await db.select<ICase>('case');
+
+    // Ahora, combinamos las dos listas
+    const formattedCases = allCases.map(caseInfo => {
+      // Buscamos si el usuario tiene un progreso guardado para este caso
+      const progressForThisCase = (progressData as any[])?.find(p => p.caseSlug === caseInfo.slug);
+      
+      // --- INICIO DE LA CORRECCIÓN CLAVE ---
+      // Limpiamos el ID complejo de SurrealDB a un string simple y limpio.
+      const cleanId = String(caseInfo.id).replace(/case:|⟨|⟩/g, '');
+      // --- FIN DE LA CORRECCIÓN CLAVE ---
+
       return {
-        ...caseItem,
-        id: cleanCaseId(caseItem.id)
+        ...caseInfo,
+        id: cleanId, // Enviamos el ID limpio al frontend
+        currentLevel: progressForThisCase?.currentLevel ?? CompetencyLevel.BRONCE,
+        attempts: progressForThisCase ? `1 de 3` : '0 de 3', 
+        progress: progressForThisCase ? 33 : 0,
+        available: true, 
       };
     });
-    
-    logger.success('Casos obtenidos y limpiados', { 
-      count: cleanedCases.length,
-      cases: cleanedCases.map(c => ({ 
-        id: c.id as string,
-        title: c.title 
-      }))
-    });
-    
-    return cleanedCases;
+
+    logger.success(`Casos personalizados obtenidos para el usuario ${userId}`, { count: formattedCases.length });
+    return formattedCases;
+
   } catch (error) {
-    logger.error('Error al obtener los casos desde la DB', error);
+    logger.error(`Error al obtener los casos para el usuario ${userId}`, error);
     return [];
   }
 }
+
+// ✅ FUNCIÓN CORREGIDA - Maneja tanto string como RecordId para retrocompatibilidad
+export async function getActiveSessionsForUser(userId: string): Promise<ISimulationSession[]> {
+  try {
+    // Como createSession guarda userId como string simple, buscamos igual
+    const query = `SELECT * FROM session WHERE userId = $userId AND status = 'in_progress';`;
+    
+    const [activeSessions] = await db.query<[SessionRow[]]>(query, { 
+      userId: userId // <- Buscar "user123" directamente
+    });
+
+    if (!activeSessions || activeSessions.length === 0) {
+      logger.info(`No se encontraron sesiones activas para el usuario ${userId}`);
+      return [];
+    }
+
+    const formattedSessions = activeSessions.map(session => {
+      const sessionId = (typeof session.id === 'object' && 'id' in session.id) 
+        ? String((session.id as RecordId).id) 
+        : String(session.id);
+        
+      return {
+        id: sessionId,
+        userId: String(session.userId), // <- Ya es string, no necesita split
+        case: session.caseSlug,
+        level: session.level,
+        attemptNumber: session.attemptNumber,
+        startTime: new Date(session.startTime as string),
+        passed: session.passed,
+        conversationHistory: [],
+      };
+    });
+
+    logger.success(`Se encontraron ${formattedSessions.length} sesiones activas para el usuario ${userId}`);
+    return formattedSessions;
+
+  } catch (error) {
+    logger.error(`Error al obtener las sesiones activas para el usuario ${userId}`, error);
+    return [];
+  }
+}
+
+export async function getSessionHistoryForUser(userId: string): Promise<ISimulationSession[]> {
+  try {
+    const userRecordId = new RecordId('user', userId);
+    const query = `SELECT * FROM session WHERE userId = $user AND status = 'completed' ORDER BY startTime DESC;`;
+
+    const [completedSessions] = await db.query<[SessionRow[]]>(query, { user: userRecordId });
+
+    if (!completedSessions || completedSessions.length === 0) {
+      logger.info(`No se encontró historial de sesiones para el usuario ${userId}`);
+      return [];
+    }
+
+    const formattedSessions = completedSessions.map(session => {
+      // --- INICIO DE LA CORRECCIÓN ---
+      const sessionId = (session.id && typeof session.id === 'object' && 'id' in session.id) 
+        ? String((session.id as RecordId).id) 
+        : '';
+      // --- FIN DE LA CORRECCIÓN ---
+
+      return {
+        id: sessionId,
+        userId: String(session.userId).split(':')[1],
+        case: session.caseSlug,
+        level: session.level,
+        attemptNumber: session.attemptNumber,
+        startTime: new Date(session.startTime as string),
+        endTime: session.endTime ? new Date(session.endTime as string) : undefined,
+        passed: session.passed,
+        conversationHistory: [],
+      };
+    }).filter(session => session.id !== ''); // Filtramos cualquier sesión con ID inválido
+
+    logger.success(`Se encontró historial de ${formattedSessions.length} sesiones para el usuario ${userId}`);
+    return formattedSessions;
+
+  } catch (error) {
+    logger.error(`Error al obtener el historial de sesiones para el usuario ${userId}`, error);
+    return [];
+  }
+}
+
+export async function createGrowthTasks(userId: string, sessionId: string, recommendations: string[]) {
+  const userRecordId = new RecordId('user', userId);
+  const sessionRecordId = new RecordId('session', sessionId);
+
+  for (const desc of recommendations) {
+    await db.create('growth_tasks', {
+      userId: userRecordId,
+      sourceSessionId: sessionRecordId,
+      description: desc,
+      completed: false,
+    });
+  }
+  logger.success(`${recommendations.length} tareas de crecimiento creadas para el usuario ${userId}`);
+}
+
+/**
+ * Obtiene el plan de crecimiento (tareas pendientes y completadas) para un usuario.
+ */
+export async function getGrowthPlanForUser(userId: string) {
+  const userRecordId = new RecordId('user', userId);
+  const query = 'SELECT * FROM growth_tasks WHERE userId = $user ORDER BY createdAt DESC;';
+  const [tasks] = await db.query(query, { user: userRecordId });
+  return tasks;
+}
+
+/**
+ * Cambia el estado de una tarea (completada / no completada).
+ */
+export async function toggleGrowthTask(taskId: string) {
+  // Obtenemos el estado actual
+  const taskRecord = await db.select(`growth_tasks:${taskId}`);
+  const isCompleted = (taskRecord as any)?.completed || false;
+  // Lo invertimos
+  const updatedTask = await db.merge(`growth_tasks:${taskId}`, { completed: !isCompleted });
+  return updatedTask;
+}
+
 
 /**
  * Obtiene un caso específico por su slug.
@@ -523,12 +726,13 @@ export async function getCompetencyRubric(level: CompetencyLevel): Promise<any[]
   }
 }
 /**
- * Obtiene el progreso actual de un usuario para un caso específico.
+ * ✅ Obtiene el progreso actual de un usuario para un caso específico.
  */
-export async function getUserProgress(userId: string, caseSlug: CaseSlug) {
+export async function getUserProgress(userId: string, caseSlug: CaseSlug): Promise<UserProgressRow | null> {
   try {
+    const userRecordId = new RecordId('user', userId);
     const query = 'SELECT * FROM user_progress WHERE userId = $userId AND caseSlug = $caseSlug LIMIT 1;';
-    const result = await db.query<[any[]]>(query, { userId, caseSlug });
+    const result = await db.query<[UserProgressRow[]]>(query, { userId: userRecordId, caseSlug });
     
     const progressRecord = result[0]?.[0] || null;
     
@@ -546,40 +750,39 @@ export async function getUserProgress(userId: string, caseSlug: CaseSlug) {
 }
 
 /**
- * Actualiza el progreso de un usuario o crea un nuevo registro si no existe.
- * Versión robusta que maneja esquemas flexibles.
+ * ✅ Actualiza el progreso de un usuario o crea un nuevo registro si no existe.
+ * Ahora también gestiona el número de intentos.
  */
 export async function updateUserProgress(
   userId: string,
   caseSlug: CaseSlug,
   newLevel: CompetencyLevel,
-  highestLevelCompleted: CompetencyLevel | null // Permitir null
+  highestLevelCompleted: CompetencyLevel | null,
+  attemptNumber: number // ✅ NUEVO PARÁMETRO OBLIGATORIO
 ) {
   const progressRecord = await getUserProgress(userId, caseSlug);
-  
-  // --- INICIO DE LA CORRECCIÓN CLAVE ---
-  // Creamos el enlace (RecordId) que la base de datos espera.
   const userRecordId = new RecordId('user', userId);
-  // --- FIN DE LA CORRECCIÓN CLAVE ---
 
   if (progressRecord) {
+    // Si ya existe, lo actualizamos
     const recordId = (progressRecord as any).id;
-    // Pasamos el RecordId en lugar del string
     await db.merge(recordId, {
       currentLevel: newLevel,
       highestLevelCompleted: highestLevelCompleted,
+      attemptNumberInCurrentLevel: attemptNumber, // ✅ ACTUALIZAR INTENTO
       userId: userRecordId, 
     });
-    logger.success('Progreso de usuario actualizado', { userId, caseSlug, newLevel });
+    logger.success('Progreso de usuario actualizado', { userId, caseSlug, newLevel, attemptNumber });
   } else {
-    // Pasamos el RecordId en lugar del string
+    // Si no existe, creamos un nuevo registro
     await db.create('user_progress', {
       userId: userRecordId,
       caseSlug,
       currentLevel: newLevel,
       highestLevelCompleted,
+      attemptNumberInCurrentLevel: attemptNumber, // ✅ GUARDAR INTENTO
     });
-    logger.success('Progreso de usuario creado', { userId, caseSlug, newLevel });
+    logger.success('Progreso de usuario creado', { userId, caseSlug, newLevel, attemptNumber });
   }
 }
 

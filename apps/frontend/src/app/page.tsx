@@ -1,14 +1,17 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Header } from "@/components/header"
 import { Sidebar } from "@/components/sidebar"
 import { Dashboard } from "@/components/dashboard"
 import { SimulationView } from "@/components/simulation-view-fullscreen"
-import { FeedbackView } from "@/components/feedback-view" // ✅ NUEVO: Importamos FeedbackView
+import { FeedbackView } from "@/components/feedback-view"
 import { CaseBriefingModal } from "@/components/case-briefing-modal"
-import { getBriefing, startSession, evaluateSession } from "@/services/api.service" // ✅ Importamos evaluateSession
-import type { ICase, ISimulationSession, IFeedbackReport } from "../../../../packages/types" // ✅ Importamos IFeedbackReport
+import { getBriefing, startSession, evaluateSession, getActiveSessions, getSession } from "@/services/api.service"
+import type { ICase, ISimulationSession, IFeedbackReport } from "../../../../packages/types"
+import { HistoryView } from "@/components/history-view"
+
+
 
 const mockUser = {
   id: "user123",
@@ -29,12 +32,50 @@ export default function Home() {
   const [activeSession, setActiveSession] = useState<ISimulationSession | null>(null)
   const [isStartingSession, setIsStartingSession] = useState(false)
   
+  // ✅ ESTADO ACTUALIZADO: Todas las sesiones activas
+  const [activeSessions, setActiveSessions] = useState<ISimulationSession[]>([])
+  const [pendingSession, setPendingSession] = useState<ISimulationSession | null>(null)
+  
   // ✅ ESTADO PARA EL SIDEBAR EN SIMULACIÓN
   const [sidebarVisible, setSidebarVisible] = useState(true)
 
-  // ✅ NUEVOS ESTADOS PARA EVALUACIÓN
+  // ✅ ESTADOS PARA EVALUACIÓN
   const [feedbackReport, setFeedbackReport] = useState<IFeedbackReport | null>(null)
   const [isEvaluating, setIsEvaluating] = useState(false)
+
+  const userId = mockUser.id; // ID del usuario
+
+  // ✅ EFECTO ACTUALIZADO: Cargar todas las sesiones activas
+  useEffect(() => {
+    // Esta función se ejecutará solo cuando se cargue el dashboard
+    if (currentView === 'dashboard') {
+      const loadDashboardData = async () => {
+        try {
+          console.log("🔍 Buscando sesiones activas para el usuario:", userId);
+          
+          // ✅ CAMBIO: Guardar TODAS las sesiones activas
+          const allActiveSessions = await getActiveSessions(userId);
+          setActiveSessions(allActiveSessions); // ✅ NUEVO: Guardar todas las sesiones
+          
+          if (allActiveSessions.length > 0) {
+            console.log(`📋 Se encontraron ${allActiveSessions.length} sesiones activas`);
+            setPendingSession(allActiveSessions[0]); // Mantener la primera para el caso sugerido
+            console.log("✅ Sesión pendiente guardada:", allActiveSessions[0].id);
+          } else {
+            console.log("✅ No se encontraron sesiones activas");
+            setPendingSession(null);
+            setActiveSessions([]); // ✅ NUEVO: Limpiar array
+          }
+        } catch (error) {
+          console.error("❌ Error al cargar datos del dashboard:", error);
+          setPendingSession(null);
+          setActiveSessions([]); // ✅ NUEVO: Limpiar en caso de error
+        }
+      };
+      
+      loadDashboardData();
+    }
+  }, [currentView, userId]); // Se ejecuta cada vez que cambia la vista o el usuario
 
   // --- FUNCIÓN EXISTENTE (sin cambios) ---
   const handleStartSimulation = async (caseData: ICase) => {
@@ -82,19 +123,42 @@ export default function Home() {
 
     } catch (error) {
       console.error("❌ Error al confirmar e iniciar la simulación:", error);
-      // TODO: Aquí podrías mostrar una notificación de error al usuario
       alert(`Error al iniciar la simulación: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     } finally {
       setIsStartingSession(false);
     }
   }
 
-  // ✅ FUNCIÓN EXISTENTE (sin cambios)
+  // ✅ FUNCIÓN EXISTENTE: Continuar una simulación existente
+  const handleContinueSimulation = async (sessionToContinue: ISimulationSession) => {
+    try {
+      console.log("🔄 Continuando simulación existente:", sessionToContinue.id);
+      
+      // Obtenemos el estado completo de la sesión, incluyendo el historial de chat
+      const fullSession = await getSession(sessionToContinue.id);
+      
+      console.log("✅ Sesión completa obtenida con", fullSession.conversationHistory.length, "mensajes");
+      
+      setActiveSession(fullSession);
+      setCurrentView("simulation");
+      setPendingSession(null); // Limpiamos la sesión pendiente al continuarla
+      
+      console.log("🎯 Vista cambiada a simulación (continuando)");
+      
+    } catch (error) {
+      console.error("❌ Error al continuar la sesión:", error);
+      alert(`Error al continuar la simulación: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    }
+  }
+
+  // ✅ FUNCIÓN ACTUALIZADA: Limpiar sesiones al volver
   const handleBackToDashboard = () => {
     setCurrentView("dashboard");
     setActiveSession(null);
-    setFeedbackReport(null); // ✅ NUEVO: Limpiar feedback al volver
-    setSidebarVisible(true); // ✅ Restaurar sidebar
+    setFeedbackReport(null);
+    setPendingSession(null);
+    setActiveSessions([]); // ✅ NUEVO: Limpiar todas las sesiones activas
+    setSidebarVisible(true);
     console.log("🔙 Regresando al dashboard");
   }
 
@@ -103,7 +167,7 @@ export default function Home() {
     setSidebarVisible(!sidebarVisible);
   }
 
-  // ✅ NUEVA FUNCIÓN: Manejar evaluación en lugar de completar directamente
+  // ✅ FUNCIÓN EXISTENTE: Manejar evaluación
   const handleEvaluation = async () => {
     if (!activeSession) {
       console.error("❌ No hay sesión activa para evaluar");
@@ -118,7 +182,7 @@ export default function Home() {
       console.log("✅ Evaluación completada:", report);
       
       setFeedbackReport(report);
-      setCurrentView("feedback"); // Cambiamos a la vista de feedback
+      setCurrentView("feedback");
       
     } catch (error) {
       console.error("❌ Error al obtener el feedback:", error);
@@ -128,7 +192,7 @@ export default function Home() {
     }
   };
 
-  // ✅ NUEVA FUNCIÓN: Reintentar simulación desde feedback
+  // ✅ FUNCIÓN EXISTENTE: Reintentar simulación desde feedback
   const handleRetrySimulation = () => {
     if (!selectedCase) {
       console.log("❌ No hay caso seleccionado para reintentar");
@@ -154,26 +218,44 @@ export default function Home() {
         />
         <main className="flex-1 ml-[280px] mt-16 p-6">
           {currentView === 'dashboard' && (
-            <Dashboard onStartSimulation={handleStartSimulation} />
+            <Dashboard 
+              onStartSimulation={handleStartSimulation}
+              pendingSession={pendingSession}
+              activeSessions={activeSessions} // ✅ NUEVO: Pasar todas las sesiones activas
+              onContinueSimulation={handleContinueSimulation}
+            />
           )}
 
           {currentView === 'simulation' && activeSession && (
             <SimulationView
               session={activeSession}
-              onComplete={handleEvaluation} // ✅ Conectamos la nueva función de evaluación
+              onComplete={handleEvaluation}
               onBack={handleBackToDashboard}
               onToggleSidebar={handleToggleSidebar}
               sidebarVisible={sidebarVisible}
-              isEvaluating={isEvaluating} // ✅ NUEVO: Pasamos el estado de carga
+              isEvaluating={isEvaluating}
             />
           )}
 
           {currentView === 'feedback' && feedbackReport && (
             <FeedbackView
-              report={feedbackReport} // ✅ Pasamos el reporte real de evaluación
+              report={feedbackReport}
               onBack={handleBackToDashboard}
-              onRetry={handleRetrySimulation} // ✅ Conectamos la función de reintento
+              onRetry={handleRetrySimulation}
             />
+          )}
+
+          {/* ✅ NUEVA VISTA CONECTADA */}
+          {currentView === 'history' && <HistoryView />}
+
+          {/* ✅ PLACEHOLDER PARA GROWTH PLAN - Necesitas crear este componente */}
+          {currentView === "growth-plan" && (
+            <div className="flex items-center justify-center min-h-96">
+              <div className="text-center">
+                <h2 className="text-2xl font-semibold text-gray-900 mb-4">Plan de Crecimiento</h2>
+                <p className="text-gray-600">Esta vista estará disponible próximamente.</p>
+              </div>
+            </div>
           )}
         </main>
       </div>

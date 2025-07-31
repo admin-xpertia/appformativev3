@@ -1,32 +1,11 @@
-// src/services/api.service.ts
 import type { ICase, ICompetencyProgress, ISimulationSession, CaseSlug, IConversationMessage, IFeedbackReport } from "../../../../packages/types";
 
 const API_BASE_URL = "http://localhost:3001/api";
 
-export const getCases = async (): Promise<ICase[]> => {
-  const response = await fetch(`${API_BASE_URL}/cases`);
-  if (!response.ok) throw new Error("Error al obtener los casos");
-  const data = (await response.json()) as Array<{
-    id: { tb: string; id: string } | string;
-    slug: CaseSlug;
-    title: string;
-  }>;
-
-  return data.map((c) => {
-    // Extraemos el string real del RecordId
-    const rawId = typeof c.id === "object" ? c.id.id : c.id;
-    // Ahora castea ambos al tipo CaseSlug
-    const slug  = c.slug as CaseSlug;
-    const id    = rawId as CaseSlug;
-
-    return {
-      id,
-      slug,
-      title: c.title,
-      available: true,
-      progress: 0,
-    };
-  });
+export const getCases = async (userId: string): Promise<ICase[]> => {
+  const response = await fetch(`${API_BASE_URL}/cases/${userId}`);
+  if (!response.ok) throw new Error('Error al obtener los casos');
+  return response.json();
 };
 
 export const getUserProgress = async (
@@ -68,13 +47,31 @@ export const startSession = async (caseSlug: string, userId: string): Promise<IS
   return session;
 };
 
-// 🔥 INTERFAZ ACTUALIZADA para manejar las nuevas respuestas
+export const getActiveSessions = async (userId: string): Promise<ISimulationSession[]> => {
+  const response = await fetch(`${API_BASE_URL}/user/${userId}/active-sessions`);
+  if (!response.ok) {
+    console.error("No se pudieron obtener las sesiones activas, pero no es un error crítico.");
+    return []; // Devolvemos un array vacío para no romper la app
+  }
+  return response.json();
+};
+
+export const getSession = async (sessionId: string): Promise<ISimulationSession> => {
+  const response = await fetch(`${API_BASE_URL}/session/${sessionId}`);
+  if (!response.ok) {
+    throw new Error('Error al obtener la sesión');
+  }
+  return response.json();
+};
+
+// --- LA FUNCIÓN DUPLICADA HA SIDO ELIMINADA ---
+
 interface TurnResponse {
   status: 'in_progress' | 'completed';
   ai_message: IConversationMessage;
-  next_action: 'continue' | 'evaluation'; // 🔥 NUEVO: Acción específica
-  message: string; // 🔥 NUEVO: Mensaje descriptivo
-  total_exchanges?: number; // 🔥 NUEVO: Contador de intercambios
+  next_action: 'continue' | 'evaluation';
+  message: string;
+  total_exchanges?: number;
 }
 
 export const sendTurn = async (sessionId: string, content: string): Promise<TurnResponse> => {
@@ -90,15 +87,10 @@ export const sendTurn = async (sessionId: string, content: string): Promise<Turn
     const errorData = await response.json().catch(() => ({}));
     console.error('❌ API: Error al procesar turno:', errorData);
     
-    // 🔥 MANEJO ESPECÍFICO del error de recursión
     if (errorData.code === 'RECURSION_LIMIT') {
       return {
         status: 'completed',
-        ai_message: {
-          sender: 'ai',
-          content: 'La simulación ha alcanzado su límite. Procedamos a la evaluación.',
-          timestamp: new Date()
-        },
+        ai_message: { sender: 'ai', content: 'La simulación ha alcanzado su límite.', timestamp: new Date() },
         next_action: 'evaluation',
         message: 'Simulación finalizada por límite de recursión.'
       };
@@ -108,24 +100,16 @@ export const sendTurn = async (sessionId: string, content: string): Promise<Turn
   }
   
   const result = await response.json();
-  console.log(`✅ API: Turno procesado exitosamente`, { 
-    status: result.status, 
-    next_action: result.next_action 
-  });
-  
+  console.log(`✅ API: Turno procesado exitosamente`, { status: result.status, next_action: result.next_action });
   return result;
 };
 
-// 🔥 NUEVA FUNCIÓN: Finalizar simulación manualmente
 export const finalizeSession = async (sessionId: string, feedback: IFeedbackReport): Promise<IFeedbackReport> => {
   console.log(`Frontend: Finalizando sesión ${sessionId} con feedback...`);
   const response = await fetch(`${API_BASE_URL}/session/${sessionId}/finalize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    // --- LA CORRECCIÓN CLAVE ---
-    // Incluimos el informe de feedback en el cuerpo de la petición.
     body: JSON.stringify(feedback),
-    // --- FIN DE LA CORRECCIÓN ---
   });
   if (!response.ok) {
     throw new Error('Error al finalizar la simulación');
@@ -140,6 +124,15 @@ export const evaluateSession = async (sessionId: string): Promise<IFeedbackRepor
   });
   if (!response.ok) {
     throw new Error('Error al solicitar la evaluación de la sesión');
+  }
+  return response.json();
+};
+
+export const getSessionHistory = async (userId: string): Promise<ISimulationSession[]> => {
+  const response = await fetch(`${API_BASE_URL}/user/${userId}/history`);
+  if (!response.ok) {
+    console.error("Error al obtener el historial de sesiones.");
+    return [];
   }
   return response.json();
 };
