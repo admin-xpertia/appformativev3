@@ -497,29 +497,31 @@ export async function getLevelInfo(
  */
 export async function getCompetencyRubric(level: CompetencyLevel): Promise<any[]> {
   try {
-    // Esta consulta une las dos tablas para obtener la descripción de la competencia
-    // y la descripción del nivel (que usaremos como indicador).
+    // --- INICIO DE LA CORRECCIÓN CLAVE ---
+    // Esta consulta ahora usa la sintaxis correcta de SurrealQL para unir las tablas.
+    // FETCH competency expande los datos de la tabla relacionada.
     const query = `
-      SELECT 
-        c.name as competencyName,
-        c.slug as competencySlug,
-        cp.level,
-        cp.description as indicator
-      FROM competency AS c 
-      INNER JOIN competency_progression AS cp ON c.slug = cp.competencySlug
-      WHERE cp.level = $level;
+      SELECT
+        competency.name as competencyName,
+        competency.slug as competencySlug,
+        level,
+        description as indicator
+      FROM competency_progression
+      WHERE level = $level
+      FETCH competency;
     `;
-    const result = await db.query<[any[]]>(query, { level });
-    const rubric = result[0] || [];
+    // --- FIN DE LA CORRECCIÓN CLAVE ---
+
+    const [rubric] = await db.query(query, { level });
     
-    logger.success(`Rúbrica obtenida para el nivel ${level}`, { count: rubric.length });
-    return rubric;
+    logger.success(`Rúbrica obtenida para el nivel ${level}`, { count: (rubric as any[]).length });
+    return rubric as any[];
+
   } catch (error) {
     logger.error(`Error al obtener la rúbrica para el nivel ${level}`, error);
     return [];
   }
 }
-
 /**
  * Obtiene el progreso actual de un usuario para un caso específico.
  */
@@ -545,32 +547,39 @@ export async function getUserProgress(userId: string, caseSlug: CaseSlug) {
 
 /**
  * Actualiza el progreso de un usuario o crea un nuevo registro si no existe.
+ * Versión robusta que maneja esquemas flexibles.
  */
-export async function updateUserProgress(userId: string, caseSlug: CaseSlug, newLevel: CompetencyLevel, highestLevelCompleted: CompetencyLevel) {
-  try {
-    const progressRecord = await getUserProgress(userId, caseSlug);
+export async function updateUserProgress(
+  userId: string,
+  caseSlug: CaseSlug,
+  newLevel: CompetencyLevel,
+  highestLevelCompleted: CompetencyLevel | null // Permitir null
+) {
+  const progressRecord = await getUserProgress(userId, caseSlug);
+  
+  // --- INICIO DE LA CORRECCIÓN CLAVE ---
+  // Creamos el enlace (RecordId) que la base de datos espera.
+  const userRecordId = new RecordId('user', userId);
+  // --- FIN DE LA CORRECCIÓN CLAVE ---
 
-    if (progressRecord) {
-      // Si ya existe, lo actualizamos
-      const recordId = (progressRecord as any).id;
-      await db.merge(recordId, {
-        currentLevel: newLevel,
-        highestLevelCompleted: highestLevelCompleted,
-      });
-      logger.success('Progreso de usuario actualizado', { userId, caseSlug, newLevel });
-    } else {
-      // Si no existe, creamos un nuevo registro
-      await db.create('user_progress', {
-        userId,
-        caseSlug,
-        currentLevel: newLevel,
-        highestLevelCompleted,
-      });
-      logger.success('Progreso de usuario creado', { userId, caseSlug, newLevel });
-    }
-  } catch (error) {
-    logger.error(`Error al actualizar progreso de usuario ${userId} para caso ${caseSlug}`, error);
-    throw error;
+  if (progressRecord) {
+    const recordId = (progressRecord as any).id;
+    // Pasamos el RecordId en lugar del string
+    await db.merge(recordId, {
+      currentLevel: newLevel,
+      highestLevelCompleted: highestLevelCompleted,
+      userId: userRecordId, 
+    });
+    logger.success('Progreso de usuario actualizado', { userId, caseSlug, newLevel });
+  } else {
+    // Pasamos el RecordId en lugar del string
+    await db.create('user_progress', {
+      userId: userRecordId,
+      caseSlug,
+      currentLevel: newLevel,
+      highestLevelCompleted,
+    });
+    logger.success('Progreso de usuario creado', { userId, caseSlug, newLevel });
   }
 }
 

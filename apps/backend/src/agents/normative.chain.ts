@@ -25,6 +25,8 @@ const promptTemplate = PromptTemplate.fromTemplate(
     Basado **únicamente** en los procedimientos del manual, genera un informe conciso con dos secciones:
     - **Aciertos Normativos:** Lista en viñetas los puntos en que el ejecutivo siguió correctamente el procedimiento.
     - **Desaciertos o Omisiones:** Lista en viñetas los puntos en que el ejecutivo se desvió, omitió un paso obligatorio o entregó información incorrecta según el manual.`
+
+    
 );
 
 const normativeChain = promptTemplate.pipe(model).pipe(new StringOutputParser());

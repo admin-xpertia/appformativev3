@@ -4,10 +4,11 @@ import { useState } from "react"
 import { Header } from "@/components/header"
 import { Sidebar } from "@/components/sidebar"
 import { Dashboard } from "@/components/dashboard"
-import { SimulationView } from "@/components/simulation-view-fullscreen" // ✅ Importamos el componente actualizado
+import { SimulationView } from "@/components/simulation-view-fullscreen"
+import { FeedbackView } from "@/components/feedback-view" // ✅ NUEVO: Importamos FeedbackView
 import { CaseBriefingModal } from "@/components/case-briefing-modal"
-import { getBriefing, startSession } from "@/services/api.service" // ✅ Importamos startSession
-import type { ICase, ISimulationSession } from "../../../../packages/types" // ✅ Importamos ISimulationSession
+import { getBriefing, startSession, evaluateSession } from "@/services/api.service" // ✅ Importamos evaluateSession
+import type { ICase, ISimulationSession, IFeedbackReport } from "../../../../packages/types" // ✅ Importamos IFeedbackReport
 
 const mockUser = {
   id: "user123",
@@ -24,12 +25,16 @@ export default function Home() {
   const [briefingText, setBriefingText] = useState<string>("")
   const [isLoadingBriefing, setIsLoadingBriefing] = useState(false)
   
-  // ✅ NUEVO ESTADO: Sesión activa de simulación
+  // ✅ ESTADO EXISTENTE: Sesión activa de simulación
   const [activeSession, setActiveSession] = useState<ISimulationSession | null>(null)
   const [isStartingSession, setIsStartingSession] = useState(false)
   
   // ✅ ESTADO PARA EL SIDEBAR EN SIMULACIÓN
   const [sidebarVisible, setSidebarVisible] = useState(true)
+
+  // ✅ NUEVOS ESTADOS PARA EVALUACIÓN
+  const [feedbackReport, setFeedbackReport] = useState<IFeedbackReport | null>(null)
+  const [isEvaluating, setIsEvaluating] = useState(false)
 
   // --- FUNCIÓN EXISTENTE (sin cambios) ---
   const handleStartSimulation = async (caseData: ICase) => {
@@ -51,7 +56,7 @@ export default function Home() {
     }
   }
 
-  // ✅ FUNCIÓN MEJORADA: Crear sesión en BD y cambiar a simulación
+  // ✅ FUNCIÓN EXISTENTE (sin cambios)
   const handleConfirmStart = async () => {
     if (!selectedCase) {
       console.error("❌ No hay caso seleccionado para iniciar la simulación");
@@ -84,24 +89,58 @@ export default function Home() {
     }
   }
 
-  // ✅ NUEVA FUNCIÓN: Volver al dashboard desde la simulación
+  // ✅ FUNCIÓN EXISTENTE (sin cambios)
   const handleBackToDashboard = () => {
     setCurrentView("dashboard");
     setActiveSession(null);
+    setFeedbackReport(null); // ✅ NUEVO: Limpiar feedback al volver
     setSidebarVisible(true); // ✅ Restaurar sidebar
     console.log("🔙 Regresando al dashboard");
   }
 
-  // ✅ NUEVA FUNCIÓN: Toggle del sidebar en simulación
+  // ✅ FUNCIÓN EXISTENTE (sin cambios)
   const handleToggleSidebar = () => {
     setSidebarVisible(!sidebarVisible);
   }
 
-  // ✅ NUEVA FUNCIÓN: Completar simulación
-  const handleCompleteSimulation = () => {
-    console.log("🎯 Simulación completada");
-    // TODO: Aquí se podría guardar el feedback final
-    handleBackToDashboard();
+  // ✅ NUEVA FUNCIÓN: Manejar evaluación en lugar de completar directamente
+  const handleEvaluation = async () => {
+    if (!activeSession) {
+      console.error("❌ No hay sesión activa para evaluar");
+      return;
+    }
+
+    console.log("🎯 Iniciando evaluación de la simulación...");
+    setIsEvaluating(true);
+    
+    try {
+      const report = await evaluateSession(activeSession.id);
+      console.log("✅ Evaluación completada:", report);
+      
+      setFeedbackReport(report);
+      setCurrentView("feedback"); // Cambiamos a la vista de feedback
+      
+    } catch (error) {
+      console.error("❌ Error al obtener el feedback:", error);
+      alert(`Error al evaluar la simulación: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    } finally {
+      setIsEvaluating(false);
+    }
+  };
+
+  // ✅ NUEVA FUNCIÓN: Reintentar simulación desde feedback
+  const handleRetrySimulation = () => {
+    if (!selectedCase) {
+      console.log("❌ No hay caso seleccionado para reintentar");
+      return;
+    }
+    
+    console.log("🔄 Reintentando simulación...");
+    setFeedbackReport(null);
+    setActiveSession(null);
+    
+    // Volver a iniciar el flujo de simulación
+    handleStartSimulation(selectedCase);
   }
 
   return (
@@ -117,19 +156,27 @@ export default function Home() {
           {currentView === 'dashboard' && (
             <Dashboard onStartSimulation={handleStartSimulation} />
           )}
+
+          {currentView === 'simulation' && activeSession && (
+            <SimulationView
+              session={activeSession}
+              onComplete={handleEvaluation} // ✅ Conectamos la nueva función de evaluación
+              onBack={handleBackToDashboard}
+              onToggleSidebar={handleToggleSidebar}
+              sidebarVisible={sidebarVisible}
+              isEvaluating={isEvaluating} // ✅ NUEVO: Pasamos el estado de carga
+            />
+          )}
+
+          {currentView === 'feedback' && feedbackReport && (
+            <FeedbackView
+              report={feedbackReport} // ✅ Pasamos el reporte real de evaluación
+              onBack={handleBackToDashboard}
+              onRetry={handleRetrySimulation} // ✅ Conectamos la función de reintento
+            />
+          )}
         </main>
       </div>
-
-      {/* ✅ VISTA DE SIMULACIÓN ACTUALIZADA: Usa el componente SimulationView real */}
-      {currentView === 'simulation' && activeSession && (
-        <SimulationView
-          session={activeSession}
-          onComplete={handleCompleteSimulation}
-          onBack={handleBackToDashboard}
-          onToggleSidebar={handleToggleSidebar}
-          sidebarVisible={sidebarVisible}
-        />
-      )}
 
       <CaseBriefingModal
         isOpen={isBriefingOpen}
@@ -137,7 +184,6 @@ export default function Home() {
         onStart={handleConfirmStart}
         caseData={selectedCase}
         briefingContent={isLoadingBriefing ? "Generando misión..." : briefingText}
-        // isStarting={isStartingSession} // ✅ Comentado - CaseBriefingModal no acepta esta prop
       />
     </div>
   )

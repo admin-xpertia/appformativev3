@@ -7,7 +7,7 @@ import cors from '@fastify/cors';
 // --- INICIO DE LA CORRECCIÓN ---
 // Importamos TODO el módulo como un solo objeto llamado 'databaseService'
 import * as databaseService from './services/database.service';
-// import { runFullEvaluation } from './agents/evaluation.chain'; // Importa el orquestador de evaluación
+import { runEvaluation } from './agents/evaluation.chain'; // Importa el orquestador de evaluación
 // --- FIN DE LA CORRECCIÓN ---
 
 import { generateBriefing } from './agents/introduction.chain';
@@ -279,89 +279,111 @@ fastify.post<{
   }
 });
 
-// 🔥 NUEVO ENDPOINT: Evaluar sesión y actualizar progreso
+// ✅ ENDPOINT FINAL: EVALUACIÓN Y PROGRESIÓN CON PROGRAMACIÓN DEFENSIVA
 fastify.post<{
   Params: { sessionId: string };
 }>('/api/session/:sessionId/evaluate', async (request, reply) => {
   const { sessionId } = request.params;
-  fastify.log.info(`POST /api/session/${sessionId}/evaluate`);
+  console.log(`🎯 Iniciando evaluación completa para sesión: ${sessionId}`);
 
   try {
-    console.log(`🎯 Iniciando evaluación completa para sesión: ${sessionId}`);
-
     // 1. Obtener la sesión y la conversación completa
     const session = await databaseService.getSession(sessionId);
     console.log(`📊 Sesión obtenida: Nivel ${session.level}, ${session.conversationHistory.length} mensajes`);
 
-    // 2. Obtener la rúbrica de evaluación para el nivel actual
-    const rubric = await databaseService.getCompetencyRubric(session.level as CompetencyLevel);
-    console.log(`📋 Rúbrica obtenida: ${rubric.length} competencias para evaluar`);
+    // 2. Ejecutar la evaluación completa (Auditor Normativo + Tutor de Competencias)
+    const feedbackReport = await runEvaluation(session.conversationHistory, session.level, session.level);
+    console.log(`📋 Evaluación completada: ${feedbackReport.competencyFeedback.length} competencias evaluadas`);
 
-    // 3. TODO: Ejecutar la evaluación completa (Auditor Normativo + Tutor de Competencias)
-    // const feedbackReport = await runFullEvaluation(session.conversationHistory, session.level, rubric);
+    // --- INICIO DE LA CORRECCIÓN CLAVE: PROGRAMACIÓN DEFENSIVA ---
+    // 3. Lógica de Aprobación SEGURA:
+    // Filtramos para asegurarnos de que solo contamos las competencias que tienen un veredicto válido.
+    const validFeedback = feedbackReport.competencyFeedback.filter((feedback: any) => {
+      // Verificamos que el objeto feedback existe y tiene las propiedades necesarias
+      return feedback && 
+             typeof feedback === 'object' && 
+             feedback.hasOwnProperty('meetsIndicators') &&
+             feedback.achievedLevel !== undefined &&
+             feedback.achievedLevel !== null;
+    });
+
+    console.log(`🔍 Feedback válido: ${validFeedback.length} de ${feedbackReport.competencyFeedback.length} competencias`);
+
+    // Solo contamos las competencias que explícitamente cumplen los indicadores
+    const passedCompetencies = validFeedback.filter((feedback: any) => feedback.meetsIndicators === true).length;
     
-    // 🚧 TEMPORAL: Mock del feedback mientras implementamos la evaluación real
-    const mockFeedbackReport: IFeedbackReport = {
-      generalCommentary: `Evaluación del nivel ${session.level} completada. El ejecutivo demostró comprensión de los conceptos básicos.`,
-      competencyFeedback: rubric.map((comp, index) => ({
-        competency: comp.competencySlug as any,
-        achievedLevel: session.level as any,
-        meetsIndicators: index < 4, // Mock: las primeras 4 competencias las cumple
-        strengths: [`Demostró ${comp.competencyName.toLowerCase()}`],
-        areasForImprovement: [`Continuar practicando ${comp.competencyName.toLowerCase()}`],
-        justification: `Basado en ${comp.indicator}`
-      })),
-      recommendations: [
-        'Continuar practicando la comunicación empática',
-        'Revisar procedimientos normativos',
-        'Practicar resolución de casos complejos'
-      ]
-    };
+    // La regla de negocio: se aprueba con 4 o más competencias superadas.
+    const didPass = passedCompetencies >= 4;
+    console.log(`📈 Resultado de evaluación: ${passedCompetencies}/${validFeedback.length} competencias aprobadas. ¿Aprobó? ${didPass}`);
+    // --- FIN DE LA CORRECCIÓN CLAVE ---
 
-    // 4. Lógica de Aprobación: ¿El usuario superó el nivel?
-    const passedCompetencies = mockFeedbackReport.competencyFeedback.filter(f => f.meetsIndicators).length;
-    const didPass = passedCompetencies >= 4; // Debe cumplir al menos 4 de 5 competencias
+    // 4. Finalizar la sesión en la base de datos con el veredicto
+    await databaseService.finalizeSession(sessionId, feedbackReport);
 
-    console.log(`📈 Resultado de evaluación: ${passedCompetencies}/5 competencias aprobadas. ¿Aprobó? ${didPass}`);
-
-    // 5. Finalizar la sesión en la base de datos con el veredicto
-    await databaseService.finalizeSession(sessionId, mockFeedbackReport);
-
-    // 6. Si aprobó, actualizar su progreso al siguiente nivel
+    // 5. Si aprobó, actualizar su progreso al siguiente nivel
     if (didPass) {
-      const currentLevelIndex = LEVEL_ORDER.indexOf(session.level as CompetencyLevel);
-      const nextLevel = LEVEL_ORDER[currentLevelIndex + 1] || CompetencyLevel.PLATINO; // Si ya está en platino, se queda ahí
+      console.log(`🏆 ¡Nivel superado! Actualizando progreso del usuario...`);
+      
+      // Convertir LEVEL_ORDER a strings en minúsculas para la comparación
+      const levelOrderStrings = LEVEL_ORDER.map(level => level.toLowerCase());
+      
+      // Manejo seguro del nivel actual
+      const currentLevelString = String(session.level || 'bronce').toLowerCase();
+      const currentLevelIndex = levelOrderStrings.indexOf(currentLevelString);
 
-      if (nextLevel !== session.level) {
-        console.log(`🎉 ¡Usuario aprobó! Avanzando de ${session.level} a ${nextLevel}`);
-        await databaseService.updateUserProgress(
-          session.userId, 
-          session.case as CaseSlug, 
-          nextLevel, 
-          session.level as CompetencyLevel
-        );
-      } else {
-        console.log(`🏆 ¡Usuario mantiene el nivel máximo: ${session.level}!`);
-      }
+      // Si no se encuentra o ya es el último nivel, se queda en platino
+      const nextLevel = (currentLevelIndex !== -1 && currentLevelIndex < levelOrderStrings.length - 1)
+        ? levelOrderStrings[currentLevelIndex + 1]
+        : "platino";
+      
+      await databaseService.updateUserProgress(
+        session.userId, 
+        session.case, 
+        nextLevel as CompetencyLevel, 
+        session.level
+      );
+
+      console.log(`🎉 Progreso actualizado: ${session.level} → ${nextLevel}`);
     } else {
       console.log(`📚 Usuario necesita más práctica en nivel ${session.level}`);
     }
 
-    // 7. Devolver el feedback al frontend
+    // Usar LEVEL_ORDER para calcular el siguiente nivel en la respuesta
+    const levelOrderStrings = LEVEL_ORDER.map(level => level.toLowerCase());
+    const currentLevelIndex = levelOrderStrings.indexOf(String(session.level).toLowerCase());
+    const nextLevelForResponse = didPass ? 
+      (levelOrderStrings[currentLevelIndex + 1] || session.level) : 
+      session.level;
+
+    // 6. Devolver el feedback al frontend con información adicional
     return {
-      ...mockFeedbackReport,
+      ...feedbackReport,
       passed: didPass,
       currentLevel: session.level,
-      nextLevel: didPass ? (LEVEL_ORDER[LEVEL_ORDER.indexOf(session.level as CompetencyLevel) + 1] || session.level) : session.level,
+      nextLevel: nextLevelForResponse,
       passedCompetencies,
-      totalCompetencies: mockFeedbackReport.competencyFeedback.length
+      totalCompetencies: validFeedback.length,
+      evaluationStats: {
+        totalFeedbackReceived: feedbackReport.competencyFeedback.length,
+        validFeedbackCount: validFeedback.length,
+        invalidFeedbackCount: feedbackReport.competencyFeedback.length - validFeedback.length
+      }
     };
 
   } catch (error) {
     console.error(`❌ Error al evaluar la sesión ${sessionId}:`, error);
-    fastify.log.error(error);
-    
     const err = error as Error;
+    
+    // Manejo específico de errores comunes
+    if (err.message.includes('toLowerCase')) {
+      console.error(`🚨 Error de tipo detectado: Probablemente datos malformados del Agente de Evaluación`);
+      return reply.status(500).send({ 
+        error: 'Error en el procesamiento de la evaluación. Los datos recibidos del sistema de IA están malformados.',
+        code: 'MALFORMED_AI_RESPONSE',
+        details: 'Se detectó un problema con el formato de respuesta del Agente de Evaluación.'
+      });
+    }
+
     return reply.status(500).send({ 
       error: 'Hubo un problema al generar la evaluación.',
       details: err.message || 'Error desconocido'
@@ -386,6 +408,7 @@ fastify.post<{
         {
           competency: 'comunicacion-efectiva' as any,
           achievedLevel: 'BRONCE' as any,
+          meetsIndicators: true, // ✅ Asegurar que esta propiedad existe
           strengths: ['Participación activa'],
           areasForImprovement: ['Continuar practicando'],
           justification: 'Nivel básico demostrado'
@@ -414,7 +437,6 @@ fastify.post<{
     });
   }
 });
-
 
 // Levantar servidor
 const start = async () => {

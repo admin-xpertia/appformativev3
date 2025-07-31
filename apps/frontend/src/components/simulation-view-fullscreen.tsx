@@ -5,18 +5,27 @@ import { ArrowLeft, Send, Sidebar as SidebarIcon, X, Trophy } from "lucide-react
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { sendTurn, finalizeSession } from "@/services/api.service"
-import type { ISimulationSession, IConversationMessage } from "../../../../packages/types"
+import type { ISimulationSession, IConversationMessage, IFeedbackReport } from "../../../../packages/types"
 
-// ✅ PROPS COMBINADAS: Funcional + Estético
+
+// ✅ PROPS COMBINADAS: Funcional + Estético + NUEVA PROP
 interface SimulationViewProps {
   session: ISimulationSession
   onComplete: () => void
   onBack: () => void
   onToggleSidebar: () => void
   sidebarVisible: boolean
+  isEvaluating?: boolean // ✅ NUEVA PROP para estado de evaluación
 }
 
-export function SimulationView({ session, onComplete, onBack, onToggleSidebar, sidebarVisible }: SimulationViewProps) {
+export function SimulationView({ 
+  session, 
+  onComplete, 
+  onBack, 
+  onToggleSidebar, 
+  sidebarVisible, 
+  isEvaluating = false // ✅ NUEVA PROP con valor por defecto
+}: SimulationViewProps) {
   // ✅ FUNCIONALIDAD: Estado basado en la sesión real
   const [messages, setMessages] = useState<IConversationMessage[]>(session.conversationHistory)
   const [inputValue, setInputValue] = useState("")
@@ -59,7 +68,7 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
 
   // ✅ FUNCIONALIDAD ACTUALIZADA: Enviar mensaje con manejo de estados
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || isTyping || !canSendMessage || simulationComplete) return
+    if (!inputValue.trim() || isTyping || !canSendMessage || simulationComplete || isEvaluating) return
 
     const userMessage: IConversationMessage = {
       sender: "user",
@@ -123,11 +132,20 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
     }
   }
 
-  // 🔥 NUEVA FUNCIÓN: Finalizar manualmente
   const handleManualFinalize = async () => {
     try {
       setIsTyping(true);
-      const response = await finalizeSession(session.id);
+      
+      // ✅ CORREGIDO: Usar objeto vacío o propiedades mínimas
+      // Opción 1: Objeto vacío (más seguro)
+      const feedbackReport: IFeedbackReport = {} as IFeedbackReport;
+      
+      // Opción 2: Si conoces las propiedades correctas, descomenta y usa:
+      // const feedbackReport: IFeedbackReport = {
+      //   // Añade aquí solo las propiedades que realmente existen en IFeedbackReport
+      // };
+      
+      const response = await finalizeSession(session.id, feedbackReport);
       handleSimulationComplete(response);
     } catch (error) {
       console.error("❌ Error al finalizar manualmente:", error);
@@ -146,7 +164,7 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
       setIsTyping(false);
     }
   };
-
+  
   // ✅ ESTÉTICA: Manejo de teclas con Enter
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -169,6 +187,9 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
 
   // ✅ FUNCIONALIDAD MEJORADA: Determinar estado de la sesión
   const getSessionStatus = () => {
+    if (isEvaluating) {
+      return "Evaluando... 🤖"
+    }
     if (simulationComplete) {
       return "Completado ✅"
     }
@@ -179,6 +200,9 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
   }
 
   const getStatusBadgeColor = () => {
+    if (isEvaluating) {
+      return "bg-orange-500"
+    }
     if (simulationComplete || session.endTime) {
       return "bg-green-500"
     }
@@ -188,7 +212,7 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
   // 🔥 NUEVA FUNCIÓN: Determinar si mostrar botón de finalización manual
   const shouldShowManualFinalize = () => {
     const userMessages = messages.filter(msg => msg.sender === 'user').length;
-    return userMessages >= 2 && !simulationComplete && canSendMessage;
+    return userMessages >= 2 && !simulationComplete && canSendMessage && !isEvaluating;
   };
 
   return (
@@ -277,8 +301,21 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
             </div>
           )}
 
+          {/* 🔥 NUEVO: Indicador de evaluación */}
+          {isEvaluating && (
+            <div className="flex justify-center">
+              <div className="bg-gradient-to-r from-orange-100 to-yellow-100 px-6 py-4 rounded-3xl border border-orange-200 text-center max-w-md">
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <div className="w-5 h-5 border-2 border-orange-600 border-t-transparent rounded-full animate-spin"></div>
+                  <h3 className="font-semibold text-orange-800">Evaluando tu desempeño...</h3>
+                </div>
+                <p className="text-sm text-orange-700">Analizando tus respuestas con IA pedagógica</p>
+              </div>
+            </div>
+          )}
+
           {/* 🔥 NUEVO: Prompt de evaluación */}
-          {showEvaluationPrompt && (
+          {showEvaluationPrompt && !isEvaluating && (
             <div className="flex justify-center">
               <div className="bg-gradient-to-r from-green-100 to-blue-100 px-6 py-4 rounded-3xl border border-green-200 text-center max-w-md">
                 <div className="flex items-center justify-center gap-2 mb-2">
@@ -289,6 +326,7 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
                 <Button 
                   onClick={onComplete}
                   className="bg-green-600 hover:bg-green-700 text-white"
+                  disabled={isEvaluating}
                 >
                   Ver Evaluación
                 </Button>
@@ -310,7 +348,7 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
                 onClick={handleManualFinalize}
                 variant="outline"
                 className="text-sm border-orange-200 text-orange-700 hover:bg-orange-50"
-                disabled={isTyping}
+                disabled={isTyping || isEvaluating}
               >
                 Finalizar Simulación Manualmente
               </Button>
@@ -327,23 +365,25 @@ export function SimulationView({ session, onComplete, onBack, onToggleSidebar, s
                 onFocus={() => setIsInputFocused(true)}
                 onBlur={() => setIsInputFocused(false)}
                 placeholder={
-                  simulationComplete 
-                    ? "Simulación completada" 
-                    : !canSendMessage 
-                      ? "Esperando..." 
-                      : "Escribe tu respuesta..."
+                  isEvaluating
+                    ? "Evaluando tu desempeño..."
+                    : simulationComplete 
+                      ? "Simulación completada" 
+                      : !canSendMessage 
+                        ? "Esperando..." 
+                        : "Escribe tu respuesta..."
                 }
                 className="w-full px-4 py-3 bg-gray-100 rounded-3xl border-none resize-none focus:outline-none focus:ring-2 focus:ring-[#48B5A3]/30 focus:bg-white transition-all duration-200 text-[15px] leading-relaxed"
                 style={{ minHeight: "44px", maxHeight: "120px" }}
-                disabled={isTyping || simulationComplete || !canSendMessage}
+                disabled={isTyping || simulationComplete || !canSendMessage || isEvaluating}
                 rows={1}
               />
             </div>
             <Button
               onClick={handleSendMessage}
-              disabled={!inputValue.trim() || isTyping || simulationComplete || !canSendMessage}
+              disabled={!inputValue.trim() || isTyping || simulationComplete || !canSendMessage || isEvaluating}
               className={`w-11 h-11 rounded-full p-0 transition-all duration-200 ${
-                inputValue.trim() && !isTyping && canSendMessage && !simulationComplete
+                inputValue.trim() && !isTyping && canSendMessage && !simulationComplete && !isEvaluating
                   ? "bg-[#48B5A3] hover:bg-[#2ECC71] shadow-lg scale-100"
                   : "bg-gray-300 cursor-not-allowed scale-95"
               }`}

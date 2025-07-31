@@ -1,5 +1,5 @@
 // src/services/api.service.ts
-import type { ICase, ICompetencyProgress, ISimulationSession, CaseSlug, IConversationMessage } from "../../../../packages/types";
+import type { ICase, ICompetencyProgress, ISimulationSession, CaseSlug, IConversationMessage, IFeedbackReport } from "../../../../packages/types";
 
 const API_BASE_URL = "http://localhost:3001/api";
 
@@ -117,19 +117,29 @@ export const sendTurn = async (sessionId: string, content: string): Promise<Turn
 };
 
 // 🔥 NUEVA FUNCIÓN: Finalizar simulación manualmente
-export const finalizeSession = async (sessionId: string): Promise<any> => {
-  console.log(`🏁 API: Finalizando sesión ${sessionId}`);
-  
+export const finalizeSession = async (sessionId: string, feedback: IFeedbackReport): Promise<IFeedbackReport> => {
+  console.log(`Frontend: Finalizando sesión ${sessionId} con feedback...`);
   const response = await fetch(`${API_BASE_URL}/session/${sessionId}/finalize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    // --- LA CORRECCIÓN CLAVE ---
+    // Incluimos el informe de feedback en el cuerpo de la petición.
+    body: JSON.stringify(feedback),
+    // --- FIN DE LA CORRECCIÓN ---
   });
-  
   if (!response.ok) {
     throw new Error('Error al finalizar la simulación');
   }
-  
-  const result = await response.json();
-  console.log('✅ API: Sesión finalizada exitosamente');
-  return result;
+  return response.json();
+};
+
+export const evaluateSession = async (sessionId: string): Promise<IFeedbackReport> => {
+  console.log(`Frontend: Solicitando evaluación para la sesión ${sessionId}`);
+  const response = await fetch(`${API_BASE_URL}/session/${sessionId}/evaluate`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw new Error('Error al solicitar la evaluación de la sesión');
+  }
+  return response.json();
 };
