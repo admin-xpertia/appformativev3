@@ -7,11 +7,10 @@ import { Dashboard } from "@/components/dashboard"
 import { SimulationView } from "@/components/simulation-view-fullscreen"
 import { FeedbackView } from "@/components/feedback-view"
 import { CaseBriefingModal } from "@/components/case-briefing-modal"
+import { HistoryView } from "@/components/history-view"
+import { GrowthPlanView } from "@/components/growth-plan-view" // ✅ NUEVO IMPORT
 import { getBriefing, startSession, evaluateSession, getActiveSessions, getSession } from "@/services/api.service"
 import type { ICase, ISimulationSession, IFeedbackReport } from "../../../../packages/types"
-import { HistoryView } from "@/components/history-view"
-
-
 
 const mockUser = {
   id: "user123",
@@ -245,18 +244,11 @@ export default function Home() {
             />
           )}
 
-          {/* ✅ NUEVA VISTA CONECTADA */}
+          {/* ✅ VISTA EXISTENTE */}
           {currentView === 'history' && <HistoryView />}
 
-          {/* ✅ PLACEHOLDER PARA GROWTH PLAN - Necesitas crear este componente */}
-          {currentView === "growth-plan" && (
-            <div className="flex items-center justify-center min-h-96">
-              <div className="text-center">
-                <h2 className="text-2xl font-semibold text-gray-900 mb-4">Plan de Crecimiento</h2>
-                <p className="text-gray-600">Esta vista estará disponible próximamente.</p>
-              </div>
-            </div>
-          )}
+          {/* ✅ REEMPLAZAMOS EL PLACEHOLDER CON EL COMPONENTE REAL */}
+          {currentView === "growth-plan" && <GrowthPlanView />}
         </main>
       </div>
 

@@ -542,84 +542,117 @@ export async function getActiveSessionsForUser(userId: string): Promise<ISimulat
   }
 }
 
-export async function getSessionHistoryForUser(userId: string): Promise<ISimulationSession[]> {
+export const getSessionHistoryForUser = async (userId: string): Promise<ISimulationSession[]> => {
   try {
-    const userRecordId = new RecordId('user', userId);
-    const query = `SELECT * FROM session WHERE userId = $user AND status = 'completed' ORDER BY startTime DESC;`;
+    logger.info(`Buscando historial de sesiones para el usuario ${userId}`);
+    
+    // ✅ CORRECCIÓN: Usar SurrealQL en lugar de MongoDB
+    const query = `
+      SELECT * FROM session 
+      WHERE userId = $userId 
+      AND (
+        status = 'completed' OR 
+        status = 'finalized' OR 
+        status = 'finished' OR 
+        status = 'evaluated' OR
+        endTime IS NOT NULL
+      )
+      ORDER BY endTime DESC, startTime DESC
+    `;
+    
+    const [completedSessions] = await db.query<[SessionRow[]]>(query, { userId });
 
-    const [completedSessions] = await db.query<[SessionRow[]]>(query, { user: userRecordId });
-
+    logger.info(`Encontradas ${completedSessions?.length || 0} sesiones completadas para el usuario ${userId}`);
+    
     if (!completedSessions || completedSessions.length === 0) {
       logger.info(`No se encontró historial de sesiones para el usuario ${userId}`);
       return [];
     }
 
-    const formattedSessions = completedSessions.map(session => {
-      // --- INICIO DE LA CORRECCIÓN ---
-      const sessionId = (session.id && typeof session.id === 'object' && 'id' in session.id) 
+    // ✅ CORRECCIÓN: Mapear correctamente los datos con tipos explícitos
+    const formattedSessions: ISimulationSession[] = completedSessions.map((session: SessionRow) => {
+      // Limpiar el ID de la sesión
+      const sessionId = (typeof session.id === 'object' && 'id' in session.id) 
         ? String((session.id as RecordId).id) 
-        : '';
-      // --- FIN DE LA CORRECCIÓN ---
+        : String(session.id);
 
       return {
         id: sessionId,
-        userId: String(session.userId).split(':')[1],
+        userId: String(session.userId),
         case: session.caseSlug,
         level: session.level,
-        attemptNumber: session.attemptNumber,
-        startTime: new Date(session.startTime as string),
-        endTime: session.endTime ? new Date(session.endTime as string) : undefined,
-        passed: session.passed,
-        conversationHistory: [],
+        status: session.status || 'completed',
+        conversationHistory: [], // Se puede cargar por separado si es necesario
+        startTime: parseDate(session.startTime),
+        endTime: session.endTime ? parseDate(session.endTime) : undefined,
+        attemptNumber: session.attemptNumber || 1,
+        passed: session.passed || false
       };
-    }).filter(session => session.id !== ''); // Filtramos cualquier sesión con ID inválido
+    });
 
-    logger.success(`Se encontró historial de ${formattedSessions.length} sesiones para el usuario ${userId}`);
+    logger.success(`Historial de sesiones formateado para usuario ${userId}`, { 
+      count: formattedSessions.length,
+      sessions: formattedSessions.map(s => ({ 
+        id: s.id, 
+        case: s.case, 
+        level: s.level,
+        status: s.status
+      }))
+    });
+    
     return formattedSessions;
-
+    
   } catch (error) {
-    logger.error(`Error al obtener el historial de sesiones para el usuario ${userId}`, error);
-    return [];
+    logger.error(`Error al obtener historial de sesiones para usuario ${userId}`, error);
+    return []; // ✅ Devolver array vacío en lugar de lanzar error
   }
-}
+};
 
 export async function createGrowthTasks(userId: string, sessionId: string, recommendations: string[]) {
   const userRecordId = new RecordId('user', userId);
   const sessionRecordId = new RecordId('session', sessionId);
 
-  for (const desc of recommendations) {
-    await db.create('growth_tasks', {
-      userId: userRecordId,
-      sourceSessionId: sessionRecordId,
-      description: desc,
-      completed: false,
-    });
+  try {
+    // --- INICIO DE LA CORRECCIÓN CLAVE ---
+    // Usamos un bucle y db.create para asegurar que cada tarea se inserte correctamente.
+    for (const desc of recommendations) {
+      // Dejamos que SurrealDB genere el ID para máxima fiabilidad.
+      await db.create('growth_tasks', {
+        userId: userRecordId,
+        sourceSessionId: sessionRecordId,
+        description: desc,
+        completed: false, // Las tareas siempre se crean como no completadas
+        createdAt: new Date(), // Añadimos la fecha de creación
+      });
+    }
+    // --- FIN DE LA CORRECCIÓN CLAVE ---
+    
+    logger.success(`${recommendations.length} tareas de crecimiento creadas para el usuario ${userId}`);
+
+  } catch (error) {
+    logger.error(`Error al crear tareas de crecimiento para el usuario ${userId}`, error);
   }
-  logger.success(`${recommendations.length} tareas de crecimiento creadas para el usuario ${userId}`);
 }
 
 /**
- * Obtiene el plan de crecimiento (tareas pendientes y completadas) para un usuario.
+ * Obtiene el plan de crecimiento (todas las tareas) para un usuario.
  */
 export async function getGrowthPlanForUser(userId: string) {
   const userRecordId = new RecordId('user', userId);
   const query = 'SELECT * FROM growth_tasks WHERE userId = $user ORDER BY createdAt DESC;';
   const [tasks] = await db.query(query, { user: userRecordId });
-  return tasks;
+  return tasks as any[];
 }
 
 /**
  * Cambia el estado de una tarea (completada / no completada).
  */
 export async function toggleGrowthTask(taskId: string) {
-  // Obtenemos el estado actual
   const taskRecord = await db.select(`growth_tasks:${taskId}`);
   const isCompleted = (taskRecord as any)?.completed || false;
-  // Lo invertimos
-  const updatedTask = await db.merge(`growth_tasks:${taskId}`, { completed: !isCompleted });
+  const [updatedTask] = await db.merge(`growth_tasks:${taskId}`, { completed: !isCompleted });
   return updatedTask;
 }
-
 
 /**
  * Obtiene un caso específico por su slug.

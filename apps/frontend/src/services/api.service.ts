@@ -1,4 +1,4 @@
-import type { ICase, ICompetencyProgress, ISimulationSession, CaseSlug, IConversationMessage, IFeedbackReport } from "../../../../packages/types";
+import type { ICase, ICompetencyProgress, ISimulationSession, CaseSlug, IConversationMessage, IFeedbackReport, IGrowthTask } from "../../../../packages/types";
 
 const API_BASE_URL = "http://localhost:3001/api";
 
@@ -137,7 +137,7 @@ export const getSessionHistory = async (userId: string): Promise<ISimulationSess
   return response.json();
 };
 
-export const getGrowthPlan = async (userId: string): Promise<any> => {
+export const getGrowthPlan = async (userId: string): Promise<IGrowthTask[]> => {
   const response = await fetch(`${API_BASE_URL}/user/${userId}/growth-plan`);
   if (!response.ok) {
     throw new Error('Error al obtener el plan de crecimiento');
@@ -146,12 +146,14 @@ export const getGrowthPlan = async (userId: string): Promise<any> => {
 };
 
 export const toggleTask = async (taskId: string): Promise<any> => {
-  const response = await fetch(`${API_BASE_URL}/task/${taskId}/toggle`, {
+  // Limpiamos el taskId por si viene con el prefijo de la tabla
+  const cleanTaskId = String(taskId).split(':')[1] || taskId;
+
+  const response = await fetch(`${API_BASE_URL}/task/${cleanTaskId}/toggle`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
   });
   if (!response.ok) {
-    throw new Error('Error al cambiar el estado de la tarea');
+    throw new Error('Error al actualizar la tarea');
   }
   return response.json();
 };

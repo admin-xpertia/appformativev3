@@ -316,6 +316,8 @@ fastify.post<{
 });
 
 // ✅ ENDPOINT FINAL: EVALUACIÓN Y PROGRESIÓN CORREGIDO
+// Reemplaza tu endpoint POST /api/session/:sessionId/evaluate con esta versión
+
 fastify.post<{
   Params: { sessionId: string };
 }>('/api/session/:sessionId/evaluate', async (request, reply) => {
@@ -356,49 +358,63 @@ fastify.post<{
     // 4. Finalizar la sesión en la base de datos con el veredicto
     await databaseService.finalizeSession(sessionId, feedbackReport);
 
+    // ✅ NUEVA ACCIÓN: Crear las tareas de crecimiento
+    if (feedbackReport.recommendations && feedbackReport.recommendations.length > 0) {
+      console.log(`📝 Creando ${feedbackReport.recommendations.length} tareas de crecimiento para el usuario ${session.userId}`);
+      try {
+        await databaseService.createGrowthTasks(session.userId, sessionId, feedbackReport.recommendations);
+        console.log(`✅ Tareas de crecimiento creadas exitosamente`);
+      } catch (error) {
+        console.error(`⚠️ Error al crear tareas de crecimiento:`, error);
+        // No lanzamos el error para no interrumpir el flujo principal
+      }
+    } else {
+      console.log(`ℹ️ No hay recomendaciones para crear tareas de crecimiento`);
+    }
+
     // 5. ✅ CORREGIDO: Si aprobó, actualizar su progreso al siguiente nivel con attemptNumber
     if (didPass) {
-  console.log(`🏆 ¡Nivel superado! Actualizando progreso del usuario...`);
-  
-  // Convertir LEVEL_ORDER a strings en minúsculas para la comparación
-  const levelOrderStrings = LEVEL_ORDER.map(level => level.toLowerCase());
-  
-  // Manejo seguro del nivel actual
-  const currentLevelString = String(session.level || 'bronce').toLowerCase();
-  const currentLevelIndex = levelOrderStrings.indexOf(currentLevelString);
+      console.log(`🏆 ¡Nivel superado! Actualizando progreso del usuario...`);
+      
+      // Convertir LEVEL_ORDER a strings en minúsculas para la comparación
+      const levelOrderStrings = LEVEL_ORDER.map(level => level.toLowerCase());
+      
+      // Manejo seguro del nivel actual
+      const currentLevelString = String(session.level || 'bronce').toLowerCase();
+      const currentLevelIndex = levelOrderStrings.indexOf(currentLevelString);
 
-  // Si no se encuentra o ya es el último nivel, se queda en platino
-  const nextLevel = (currentLevelIndex !== -1 && currentLevelIndex < levelOrderStrings.length - 1)
-    ? levelOrderStrings[currentLevelIndex + 1]
-    : "platino";
-  
-  // ✅ VERIFICACIÓN: Cuando aprueba, va al siguiente nivel con attemptNumber = 1
-  await databaseService.updateUserProgress(
-    session.userId, 
-    session.case, 
-    nextLevel as CompetencyLevel, 
-    session.level, // highestLevelCompleted es el nivel que acaba de superar
-    1 // Reinicia a 1 para el nuevo nivel
-  );
+      // Si no se encuentra o ya es el último nivel, se queda en platino
+      const nextLevel = (currentLevelIndex !== -1 && currentLevelIndex < levelOrderStrings.length - 1)
+        ? levelOrderStrings[currentLevelIndex + 1]
+        : "platino";
+      
+      // ✅ VERIFICACIÓN: Cuando aprueba, va al siguiente nivel con attemptNumber = 1
+      await databaseService.updateUserProgress(
+        session.userId, 
+        session.case, 
+        nextLevel as CompetencyLevel, 
+        session.level, // highestLevelCompleted es el nivel que acaba de superar
+        1 // Reinicia a 1 para el nuevo nivel
+      );
 
-  console.log(`🎉 Progreso actualizado: ${session.level} → ${nextLevel}`);
-} else {
-  console.log(`📚 Usuario necesita más práctica en nivel ${session.level}`);
-  
-  // ✅ VERIFICACIÓN: Si no pasó, mantiene el nivel pero incrementa attemptNumber
-  // Obtenemos el progreso actual solo para mantener highestLevelCompleted
-  const currentProgress = await databaseService.getUserProgress(session.userId, session.case);
-  
-  await databaseService.updateUserProgress(
-    session.userId,
-    session.case,
-    session.level as CompetencyLevel,
-    currentProgress?.highestLevelCompleted || null, // Mantener el nivel más alto ya completado
-    session.attemptNumber + 1 // ✅ CORRECCIÓN: Incrementamos el intento actual
-  );
-  
-  console.log(`📈 Progreso actualizado: Intento ${session.attemptNumber + 1} en nivel ${session.level}`);
-}
+      console.log(`🎉 Progreso actualizado: ${session.level} → ${nextLevel}`);
+    } else {
+      console.log(`📚 Usuario necesita más práctica en nivel ${session.level}`);
+      
+      // ✅ VERIFICACIÓN: Si no pasó, mantiene el nivel pero incrementa attemptNumber
+      // Obtenemos el progreso actual solo para mantener highestLevelCompleted
+      const currentProgress = await databaseService.getUserProgress(session.userId, session.case);
+      
+      await databaseService.updateUserProgress(
+        session.userId,
+        session.case,
+        session.level as CompetencyLevel,
+        currentProgress?.highestLevelCompleted || null, // Mantener el nivel más alto ya completado
+        session.attemptNumber + 1 // ✅ CORRECCIÓN: Incrementamos el intento actual
+      );
+      
+      console.log(`📈 Progreso actualizado: Intento ${session.attemptNumber + 1} en nivel ${session.level}`);
+    }
 
     // Usar LEVEL_ORDER para calcular el siguiente nivel en la respuesta
     const levelOrderStrings = LEVEL_ORDER.map(level => level.toLowerCase());
