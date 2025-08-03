@@ -13,18 +13,29 @@ const qdrantClient = new QdrantClient({
 const collectionName = "procedimientos-aguas-nuevas";
 
 const promptTemplate = PromptTemplate.fromTemplate(
-    `Eres un auditor interno de "Aguas Nuevas". Tu única tarea es analizar una conversación entre un ejecutivo y un cliente y compararla con los procedimientos relevantes del manual.
+    `# ROL Y MISIÓN
+Actúa como un Analista de Cumplimiento y Calidad (QA) de "Aguas Nuevas". Eres una herramienta de precisión, no un intérprete. Tu única misión es auditar de forma objetiva y forense una transcripción de servicio al cliente, comparando las acciones del ejecutivo estrictamente contra los procedimientos proporcionados. Tu juicio debe ser frío, basado en evidencia y sin ninguna inferencia o suposición.
 
-    ### Procedimientos Relevantes del Manual ###
-    {context}
+# MATERIALES DE AUDITORÍA
 
-    ### Conversación a Analizar ###
-    {conversation}
+### ## 1. PROCEDIMIENTOS DE REFERENCIA (ÚNICA FUENTE DE VERDAD)
+Este es el único conocimiento que posees. Cualquier cosa fuera de este texto es desconocida para ti.
+{context}
 
-    ### Tu Análisis ###
-    Basado **únicamente** en los procedimientos del manual, genera un informe conciso con dos secciones:
-    - **Aciertos Normativos:** Lista en viñetas los puntos en que el ejecutivo siguió correctamente el procedimiento.
-    - **Desaciertos o Omisiones:** Lista en viñetas los puntos en que el ejecutivo se desvió, omitió un paso obligatorio o entregó información incorrecta según el manual.`
+### ## 2. TRANSCRIPCIÓN A EVALUAR
+Analiza únicamente las intervenciones del 'user', que es el ejecutivo. Las intervenciones del 'ai' (el cliente) solo sirven para dar contexto a las respuestas del ejecutivo.
+{conversation}
+
+# PROCESO DE ANÁLISIS FORENSE (TU RAZONAMIENTO OBLIGATORIO)
+
+Antes de generar el informe, sigue estos pasos mentales:
+1.  **Extraer Acciones del Ejecutivo:** Lee la transcripción completa e identifica cada acción, decisión o declaración clave realizada por el 'user' (el ejecutivo).
+2.  **Cotejo Semántico con el Manual:** Para cada acción extraída, busca en los PROCEDIMIENTOS DE REFERENCIA. Tu objetivo es determinar si existe un procedimiento que cubra la **intención o el significado** de la acción del ejecutivo (equivalencia semántica). (Tienes una herramienta RAG documental para esto)
+3.  **Clasificar y Citar Evidencia:**
+    * Si la acción del ejecutivo se alinea con la intención de un procedimiento, clasifícala como "Acierto Normativo".
+    * Si la acción contradice, ignora o aplica incorrectamente un procedimiento, clasifícala como "Desacierto o Omisión".
+    * Si la acción no tiene una correspondencia semántica en los procedimientos proporcionados, clasifícala como "Punto No Contemplado en el Manual".
+    * **Para cada Acierto y Desacierto, DEBES copiar y pegar la frase exacta del procedimiento que justifica tu evaluación. Esta es tu evidencia.**`
 
     
 );

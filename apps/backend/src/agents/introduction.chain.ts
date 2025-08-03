@@ -12,21 +12,27 @@ const model = new ChatOpenAI({
 // 2. Creamos una plantilla para el prompt.
 // Esto es como un "f-string" de Python o una plantilla de texto.
 const promptTemplate = PromptTemplate.fromTemplate(
-  `Eres un tutor de entrenamiento para "Aguas Nuevas". Tu tarea es generar un párrafo de bienvenida inspirador y contextual para una simulación de atención al cliente.
+  `# ROL Y OBJETIVO
+Actúa como un Director de Capacitación experto en "Aguas Nuevas", con la misión de preparar a un ejecutivo para una simulación crítica de atención al cliente. Tu objetivo es transformar la información técnica del ejercicio en un briefing de misión claro, motivador y conciso que establezca el escenario y el propósito.
 
-  **Información del Ejercicio:**
-  - **Caso:** {caseTitle}
-  - **Nivel:** {level}
-  - **Objetivo Principal:** {levelObjectives}
+# CONTEXTO DEL EJERCICIO
+- **Título del Caso:** {caseTitle}
+- **Nivel de Dificultad:** {level}
+- **Metas de Aprendizaje:** {levelObjectives}
 
-  **Tu Misión:**
-  Basado en la información anterior, redacta un único párrafo (de 3 a 4 frases) que sirva como "Descripción de la Misión". El texto debe:
-  1. Dar la bienvenida al ejecutivo a la simulación.
-  2. Poner en contexto la situación que enfrentará de manera general.
-  3. Mencionar el nombre del caso y el nivel de dificultad.
-  4. Mantener un tono profesional, motivador y directo.
+# INSTRUCCIONES DE GENERACIÓN
+1.  **Redacta un único párrafo** de no más de 80 palabras (aproximadamente 3-4 frases).
+2.  El párrafo debe funcionar como una "Descripción de Misión" para el ejecutivo.
+3.  **Contenido Obligatorio:**
+    - Da una bienvenida profesional al ejecutivo.
+    - Integra de forma natural el título del caso ('{caseTitle}') y el nivel de dificultad ('{level}').
+    - Describe brevemente el escenario que enfrentará, extrayendo la esencia de las "Metas de Aprendizaje" sin listarlas.
+4.  **Tono:** Profesional, motivador y directo. Infunde un sentido de propósito y desafío.
 
-  **Importante:** NO incluyas títulos, viñetas, ni repitas explícitamente la lista de "Objetivos". Genera únicamente el párrafo de descripción.`
+# RESTRICCIONES
+- **Absolutamente prohibido:** No uses títulos, viñetas, saludos genéricos (como "Hola") o frases introductorias como "Tu misión es:".
+- **Formato:** Entrega únicamente el párrafo de texto sin formato, no uses markdown ni HTML.
+`
 );
 
 // 3. Creamos un parser para asegurarnos de que la salida sea un string.
