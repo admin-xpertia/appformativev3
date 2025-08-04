@@ -367,92 +367,215 @@ export async function appendMessage(
   }
 }
 
-/**
- * ❶❃ Finaliza la sesión usando helper DRY.
- */
+// ✅ Nuevo helper para obtener el progreso del usuario
 export async function finalizeSession(
   sessionId: string,
-  feedback: IFeedbackReport
+  feedback: IFeedbackReport,
+  didPass: boolean // Pasamos el veredicto desde el index.ts
 ): Promise<IFeedbackReport> {
-  logger.info('Finalizando sesión', { sessionId });
+  logger.info('🚀 Iniciando finalización de sesión', { sessionId });
 
   try {
-    // ❃ Usar helper DRY
-    const sessionRecordId = await findSessionRecordId(sessionId);
+    const sessionRecordId = new RecordId('session', sessionId);
     
-    logger.debug('Sesión encontrada para finalizar', { sessionRecordId });
+    // 🔍 LOG 1: Verificar datos de entrada
+    logger.debug('📥 DATOS DE ENTRADA - Estado inicial del feedback:', {
+      sessionId,
+      didPass,
+      generalCommentaryLength: feedback.generalCommentary?.length || 0,
+      competencyFeedbackCount: feedback.competencyFeedback?.length || 0,
+      recommendationsCount: feedback.recommendations?.length || 0,
+      competencyFeedbackTypes: feedback.competencyFeedback?.map(c => typeof c) || [],
+    });
 
-    // ❼ En el futuro, estas operaciones podrían ir en una transacción
-    await db.create<FeedbackRow>("feedback", {
+    // 🔍 LOG 2: Inspeccionar cada competencia en detalle
+    if (feedback.competencyFeedback && Array.isArray(feedback.competencyFeedback)) {
+      feedback.competencyFeedback.forEach((comp, index) => {
+        logger.debug(`🔬 Competencia [${index}] análisis detallado:`, {
+          index,
+          competency: comp.competency,
+          competencyType: typeof comp.competency,
+          achievedLevel: comp.achievedLevel,
+          achievedLevelType: typeof comp.achievedLevel,
+          strengthsCount: comp.strengths?.length || 0,
+          strengthsType: typeof comp.strengths,
+          areasCount: comp.areasForImprovement?.length || 0,
+          areasType: typeof comp.areasForImprovement,
+          justification: comp.justification ? `${comp.justification.substring(0, 50)}...` : 'undefined',
+          justificationType: typeof comp.justification,
+          meetsIndicators: comp.meetsIndicators,
+          meetsIndicatorsType: typeof comp.meetsIndicators,
+          allKeys: Object.keys(comp),
+          objectIntegrity: Object.keys(comp).length > 0 ? 'OK' : 'EMPTY_OBJECT'
+        });
+
+        // 🚨 Detectar objetos problemáticos antes de guardar
+        if (Object.keys(comp).length === 0) {
+          logger.error(`❌ OBJETO VACÍO DETECTADO en competencia [${index}]`);
+        }
+        if (!comp.competency) {
+          logger.error(`❌ COMPETENCY FALTANTE en índice [${index}]`);
+        }
+        if (!comp.achievedLevel) {
+          logger.error(`❌ ACHIEVED_LEVEL FALTANTE en índice [${index}]`);
+        }
+      });
+    } else {
+      logger.error('❌ competencyFeedback no es un array válido:', {
+        type: typeof feedback.competencyFeedback,
+        value: feedback.competencyFeedback
+      });
+    }
+
+    // --- INICIO DE LA CORRECCIÓN CLAVE ---
+    // 🔧 SERIALIZACIÓN MANUAL: Convertir objetos a formato que SurrealDB pueda manejar
+    logger.info('🔧 Serializando competencyFeedback manualmente...');
+    
+    const serializedCompetencyFeedback = feedback.competencyFeedback.map(comp => {
+      // Crear objeto plano explícitamente
+      const cleanCompetency = {
+        competency: String(comp.competency || ''),
+        achievedLevel: String(comp.achievedLevel || ''),
+        strengths: Array.isArray(comp.strengths) ? comp.strengths.map(s => String(s)) : [],
+        areasForImprovement: Array.isArray(comp.areasForImprovement) ? comp.areasForImprovement.map(a => String(a)) : [],
+        justification: String(comp.justification || ''),
+        meetsIndicators: Boolean(comp.meetsIndicators)
+      };
+      
+      logger.debug(`🧹 Competencia serializada [${comp.competency}]:`, {
+        original: Object.keys(comp),
+        serialized: Object.keys(cleanCompetency),
+        competency: cleanCompetency.competency,
+        achievedLevel: cleanCompetency.achievedLevel
+      });
+      
+      return cleanCompetency;
+    });
+
+    logger.info('🔧 Ejecutando db.create() con datos serializados...');
+    
+    const createdFeedbackArray = await db.create('feedback', {
       sessionId: sessionRecordId,
-      generalCommentary: feedback.generalCommentary,
-      competencyFeedback: feedback.competencyFeedback,
-      recommendations: feedback.recommendations,
+      generalCommentary: String(feedback.generalCommentary || ''),
+      competencyFeedback: serializedCompetencyFeedback, // ✅ Usar objetos serializados
+      recommendations: Array.isArray(feedback.recommendations) ? feedback.recommendations.map(r => String(r)) : [],
     });
-
-    // ❶ Usar record::id en lugar de string::split
-    const updateQuery = `
-      UPDATE session 
-      SET status = $status, endTime = $endTime, passed = $passed 
-      WHERE record::id(id) = $sessionId
-    `;
     
-    await db.query(updateQuery, {
-      sessionId: sessionId,
+    const createdFeedback = Array.isArray(createdFeedbackArray) ? createdFeedbackArray[0] : createdFeedbackArray;
+    
+    logger.success('✅ db.create() ejecutado exitosamente', {
+      createdFeedbackId: createdFeedback?.id || 'unknown',
+      createdFeedbackType: typeof createdFeedback,
+      isArray: Array.isArray(createdFeedbackArray)
+    });
+    // --- FIN DE LA CORRECCIÓN CLAVE ---
+
+    // 🔍 VERIFICACIÓN CRÍTICA: Leer inmediatamente lo que se guardó
+    if (createdFeedback?.id) {
+      try {
+        logger.info('🔍 Verificando datos guardados...');
+        
+        const feedbackId = createdFeedback.id;
+        const verifyQuery = `SELECT * FROM ${feedbackId}`;
+        const verificationResponse = await db.query(verifyQuery);
+        const verificationResult = verificationResponse[0] as any[];
+        const savedFeedback = verificationResult?.[0] as any;
+        
+        if (savedFeedback) {
+          logger.debug('📊 VERIFICACIÓN db.create() - Lo que realmente se guardó:', {
+            feedbackId: feedbackId,
+            generalCommentaryOK: !!savedFeedback.generalCommentary,
+            generalCommentaryPreview: savedFeedback.generalCommentary?.substring(0, 50) + '...',
+            competencyFeedbackExists: !!savedFeedback.competencyFeedback,
+            competencyFeedbackIsArray: Array.isArray(savedFeedback.competencyFeedback),
+            competencyFeedbackCount: savedFeedback.competencyFeedback?.length || 0,
+            recommendationsExists: !!savedFeedback.recommendations,
+            recommendationsCount: savedFeedback.recommendations?.length || 0
+          });
+
+          // 🕵️ ANÁLISIS PROFUNDO: Verificar cada competencia guardada
+          if (savedFeedback.competencyFeedback && Array.isArray(savedFeedback.competencyFeedback)) {
+            const savedCompetencies = savedFeedback.competencyFeedback as any[];
+            
+            savedCompetencies.forEach((savedComp: any, index: number) => {
+              logger.debug(`🔬 Competencia guardada [${index}]:`, {
+                index,
+                hasCompetency: !!savedComp.competency,
+                competency: savedComp.competency,
+                hasAchievedLevel: !!savedComp.achievedLevel,
+                achievedLevel: savedComp.achievedLevel,
+                strengthsCount: savedComp.strengths?.length || 0,
+                areasCount: savedComp.areasForImprovement?.length || 0,
+                hasJustification: !!savedComp.justification,
+                meetsIndicators: savedComp.meetsIndicators,
+                objectKeys: Object.keys(savedComp),
+                isEmpty: Object.keys(savedComp).length === 0
+              });
+            });
+
+            // 🚨 DETECTAR PROBLEMAS EN DATOS GUARDADOS
+            const emptyObjects = savedCompetencies.filter((comp: any) => 
+              Object.keys(comp).length === 0 || !comp.competency
+            );
+            
+            if (emptyObjects.length > 0) {
+              logger.error('🚨 PROBLEMA DETECTADO: Objetos vacíos encontrados después de db.create()', {
+                totalCompetencies: savedCompetencies.length,
+                emptyObjectsCount: emptyObjects.length,
+                emptyObjectsDetails: emptyObjects.map((obj, idx) => ({
+                  index: idx,
+                  keys: Object.keys(obj),
+                  content: obj
+                }))
+              });
+            } else {
+              logger.success('🎉 ÉXITO: db.create() guardó todos los datos correctamente!', {
+                competenciesWithData: savedCompetencies.length,
+                sampleCompetency: {
+                  competency: savedCompetencies[0]?.competency,
+                  level: savedCompetencies[0]?.achievedLevel,
+                  strengthsCount: savedCompetencies[0]?.strengths?.length || 0,
+                  areasCount: savedCompetencies[0]?.areasForImprovement?.length || 0
+                }
+              });
+            }
+          } else {
+            logger.error('❌ competencyFeedback no se guardó como array válido:', {
+              type: typeof savedFeedback.competencyFeedback,
+              value: savedFeedback.competencyFeedback
+            });
+          }
+        } else {
+          logger.error('❌ No se pudo obtener el feedback guardado para verificación');
+        }
+      } catch (verifyError) {
+        logger.error('❌ Error en verificación después de db.create():', verifyError);
+      }
+    }
+
+    logger.success(`✅ Feedback para la sesión ${sessionId} guardado exitosamente.`);
+
+    // Actualizamos la sesión para marcarla como completada
+    await db.merge(sessionRecordId, {
       status: 'completed',
-      endTime: new Date(),
-      passed: feedback.competencyFeedback.every(
-        (c) =>
-          c.achievedLevel === CompetencyLevel.ORO ||
-          c.achievedLevel === CompetencyLevel.PLATINO
-      ),
+      endTime: new Date(), // ✅ CORRECCIÓN: Date object, no string ISO
+      passed: didPass,
     });
 
-    logger.success('Sesión finalizada exitosamente', { sessionId });
+    logger.success(`✅ Sesión ${sessionId} finalizada y actualizada.`);
 
     return feedback;
   } catch (error) {
-    logger.error(`Error al finalizar sesión ${sessionId}`, error);
-    throw error;
-  }
-}
-
-/**
- * ❁ Devuelve el feedback final de una sesión.
- */
-export async function getFeedback(sessionId: string): Promise<IFeedbackReport | null> {
-  logger.info('Buscando feedback para sesión', { sessionId });
-
-  try {
-    // ❶ CRÍTICO: Usar record::id en lugar de string::split
-    const feedbackQuery = `
-      SELECT * FROM feedback 
-      WHERE record::id(sessionId) = $sessionId 
-      LIMIT 1
-    `;
-    
-    const result = await db.query<[FeedbackRow[]]>(feedbackQuery, {
-      sessionId: sessionId,
+    logger.error(`❌ Error crítico al finalizar sesión ${sessionId}:`, {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      sessionId,
+      feedbackDataSnapshot: {
+        hasGeneralCommentary: !!feedback?.generalCommentary,
+        competencyCount: feedback?.competencyFeedback?.length || 0,
+        recommendationsCount: feedback?.recommendations?.length || 0
+      }
     });
-
-    const rawFeedbackRecord = result[0]?.[0];
-
-    if (!rawFeedbackRecord) {
-      logger.info('No se encontró feedback para sesión', { sessionId });
-      return null;
-    }
-
-    logger.success('Feedback encontrado para sesión', { sessionId });
-
-    return {
-      generalCommentary: String(rawFeedbackRecord.generalCommentary || ''),
-      competencyFeedback: rawFeedbackRecord.competencyFeedback,
-      recommendations: Array.isArray(rawFeedbackRecord.recommendations) 
-        ? rawFeedbackRecord.recommendations.map((r: any) => String(r)) 
-        : [],
-    };
-  } catch (error) {
-    logger.error(`Error al obtener feedback de sesión ${sessionId}`, error);
     throw error;
   }
 }
@@ -542,11 +665,13 @@ export async function getActiveSessionsForUser(userId: string): Promise<ISimulat
   }
 }
 
-export const getSessionHistoryForUser = async (userId: string): Promise<ISimulationSession[]> => {
+export const getSessionHistoryForUser = async (userId: string): Promise<any[]> => {
   try {
-    logger.info(`Buscando historial de sesiones para el usuario ${userId}`);
+    logger.info(`Buscando historial de sesiones con feedback para el usuario ${userId}`);
     
-    // ✅ CORRECCIÓN: Usar SurrealQL en lugar de MongoDB
+    // --- INICIO DE LA CORRECCIÓN CLAVE ---
+    // Usamos FETCH feedback para que SurrealDB nos traiga el informe de feedback completo
+    // que está enlazado a cada sesión.
     const query = `
       SELECT * FROM session 
       WHERE userId = $userId 
@@ -558,7 +683,9 @@ export const getSessionHistoryForUser = async (userId: string): Promise<ISimulat
         endTime IS NOT NULL
       )
       ORDER BY endTime DESC, startTime DESC
+      FETCH feedback;
     `;
+    // --- FIN DE LA CORRECCIÓN CLAVE ---
     
     const [completedSessions] = await db.query<[SessionRow[]]>(query, { userId });
 
@@ -569,12 +696,16 @@ export const getSessionHistoryForUser = async (userId: string): Promise<ISimulat
       return [];
     }
 
-    // ✅ CORRECCIÓN: Mapear correctamente los datos con tipos explícitos
-    const formattedSessions: ISimulationSession[] = completedSessions.map((session: SessionRow) => {
+    // --- INICIO DEL MAPEO MEJORADO ---
+    // El resultado ya viene enriquecido con feedback, solo lo limpiamos para el frontend
+    const formattedHistory = completedSessions.map((session: any) => {
       // Limpiar el ID de la sesión
       const sessionId = (typeof session.id === 'object' && 'id' in session.id) 
         ? String((session.id as RecordId).id) 
         : String(session.id);
+
+      // El feedback ahora viene como un array dentro de la sesión gracias a FETCH
+      const feedback = session.feedback && session.feedback[0] ? session.feedback[0] : {};
 
       return {
         id: sessionId,
@@ -586,21 +717,27 @@ export const getSessionHistoryForUser = async (userId: string): Promise<ISimulat
         startTime: parseDate(session.startTime),
         endTime: session.endTime ? parseDate(session.endTime) : undefined,
         attemptNumber: session.attemptNumber || 1,
-        passed: session.passed || false
+        passed: session.passed || false,
+        // --- COMBINAMOS LOS DATOS DEL FEEDBACK ---
+        generalCommentary: feedback.generalCommentary || '',
+        competencyFeedback: feedback.competencyFeedback || [],
+        recommendations: feedback.recommendations || []
       };
     });
+    // --- FIN DEL MAPEO MEJORADO ---
 
-    logger.success(`Historial de sesiones formateado para usuario ${userId}`, { 
-      count: formattedSessions.length,
-      sessions: formattedSessions.map(s => ({ 
+    logger.success(`Historial de sesiones con feedback formateado para usuario ${userId}`, { 
+      count: formattedHistory.length,
+      sessions: formattedHistory.map(s => ({ 
         id: s.id, 
         case: s.case, 
         level: s.level,
-        status: s.status
+        status: s.status,
+        hasFeedback: !!(s.generalCommentary || s.competencyFeedback?.length || s.recommendations?.length)
       }))
     });
     
-    return formattedSessions;
+    return formattedHistory;
     
   } catch (error) {
     logger.error(`Error al obtener historial de sesiones para usuario ${userId}`, error);

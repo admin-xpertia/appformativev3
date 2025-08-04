@@ -356,7 +356,7 @@ fastify.post<{
     // --- FIN DE LA CORRECCIÓN CLAVE ---
 
     // 4. Finalizar la sesión en la base de datos con el veredicto
-    await databaseService.finalizeSession(sessionId, feedbackReport);
+await databaseService.finalizeSession(sessionId, feedbackReport, didPass);
 
     // ✅ NUEVA ACCIÓN: Crear las tareas de crecimiento
     if (feedbackReport.recommendations && feedbackReport.recommendations.length > 0) {
@@ -485,14 +485,20 @@ fastify.post<{
       recommendations: ['Continuar practicando para mejorar habilidades']
     };
 
-    await databaseService.finalizeSession(sessionId, mockFeedback);
+    const mockPassedCompetencies = mockFeedback.competencyFeedback.filter(f => f.meetsIndicators).length;
+const mockDidPass = mockPassedCompetencies >= 4; // Aplicar misma regla de negocio
 
-    return {
-      status: 'finalized',
-      feedback: mockFeedback,
-      message: 'Simulación finalizada exitosamente.',
-      next_action: 'evaluation'
-    };
+await databaseService.finalizeSession(sessionId, mockFeedback, mockDidPass);
+
+return {
+  status: 'finalized',
+  feedback: mockFeedback,
+  message: 'Simulación finalizada exitosamente.',
+  next_action: 'evaluation',
+  passed: mockDidPass, // ✅ BONUS: También devolver el resultado
+  passedCompetencies: mockPassedCompetencies,
+  totalCompetencies: mockFeedback.competencyFeedback.length
+};
 
   } catch (err) {
     console.error(`❌ Error al finalizar sesión ${sessionId}:`, err);

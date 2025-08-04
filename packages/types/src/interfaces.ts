@@ -84,7 +84,7 @@ export interface ICompetencyFeedback {
 }
 
 export interface IGrowthTask {
-  [key: string]: any; // Para compatibilidad con la base de datos
+  [key: string]: any;
   id: string;
   userId: string;
   description: string;
@@ -92,4 +92,5 @@ export interface IGrowthTask {
   completed: boolean;
   createdAt: Date;
 }
+
 
