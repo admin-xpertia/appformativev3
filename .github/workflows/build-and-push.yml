@@ -61,9 +61,68 @@ jobs:
         run: |
           echo "IMAGE_REGISTRY=$IMAGE_REGISTRY" >> $GITHUB_ENV
 
+      - name: Test, build, and push staging image
+        id: build-staging-image
+        run: |
+          cd $CODEBASE_PATH
+          if test -f "./build/Dockerfile.staging"; then
+            echo "Staging Dockerfile found, building it"
+            docker build -t $IMAGE_REGISTRY/$IMAGE_REPOSITORY:staging -f ./build/Dockerfile.staging .
+          else
+            echo "Staging Dockerfile not found"
+            docker build -t $IMAGE_REGISTRY/$IMAGE_REPOSITORY:staging -f ./build/Dockerfile .
+          fi
+          docker push $IMAGE_REGISTRY/$IMAGE_REPOSITORY:staging
+
+      - name: Checkout repository for e2e testing
+        if: ${{ inputs.PERFORM_E2E_TESTS == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: xpertiadev/shared-testing-system
+          ssh-key: ${{ secrets.TESTING_SYSTEM_PRIVATE_KEY }}
+          path: testing-system
+
+      # Containers to be tested are based on their staging version
+      - name: Run staging service containers
+        if: ${{ inputs.PERFORM_E2E_TESTS == 'true' }}
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          cd testing-system/contexts/$ORGANIZATION_NAME
+          docker network inspect xpertia_network >/dev/null 2>&1 || \
+            docker network create xpertia_network
+          docker compose up -d
+
+      - name: Wait for services to be healthy before testing
+        if: ${{ inputs.PERFORM_E2E_TESTS == 'true' }}
+        run: |
+          cd ./testing-system
+          chmod +x ./contexts/$ORGANIZATION_NAME/check_services.sh
+          chmod +x ./scripts/check_health.sh
+          ./contexts/$ORGANIZATION_NAME/check_services.sh
+
+      - name: Run tests
+        if: ${{ inputs.PERFORM_E2E_TESTS == 'true' }}
+        uses: cypress-io/github-action@v6
+        with:
+          working-directory: testing-system
+          spec: cypress/e2e/${{ steps.load-env-vars.outputs.ORGANIZATION_NAME }}/**/*.cy.js
+
+      - name: After-tests event hook for arbitrary code execution
+        env:
+          BASTION_PRIVATE_KEY: ${{ secrets.BASTION_PRIVATE_KEY }}
+        run: |
+          cd $CODEBASE_PATH
+          find "./deployment" -type f -name "*.after_tests.sh" | while read -r script; do
+            chmod +x "$script"
+            echo "Executing: $script"
+            sh "$script"
+          done
+
       - name: Build and push production image
         id: build-production-image
         run: |
+          cd $CODEBASE_PATH
           docker build -t $IMAGE_REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG -f ./build/Dockerfile .
           docker push $IMAGE_REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG
 
@@ -75,16 +134,16 @@ jobs:
       - name: Replace placeholders in task definition template
         run: |
           cp .github/scripts/task_definition.json.template task_definition.json
-          python .github/scripts/convert_env_to_json.py ./deployment/variables/production.env production.env.json
+          python .github/scripts/convert_env_to_json.py $CODEBASE_PATH/deployment/variables/production.env production.env.json
           python .github/scripts/replace_with_file_contents.py task_definition.json production.env.json
-          python .github/scripts/replace_with_env_variables.py task_definition.json ./deployment/variables/task_parameters.env
+          python .github/scripts/replace_with_env_variables.py task_definition.json $CODEBASE_PATH/deployment/variables/task_parameters.env
           python .github/scripts/replace_with_env_variables.py task_definition.json deployment-vars.env
           sed -i "s|IMAGE_REGISTRY|$IMAGE_REGISTRY|g" task_definition.json
           sed -i "s|IMAGE_TAG|$IMAGE_TAG|g" task_definition.json
 
       - name: Print Files
         run: |
-          cat ./deployment/variables/task_parameters.env
+          cat $CODEBASE_PATH/deployment/variables/task_parameters.env
           cat task_definition.json
 
       - name: Register new task definition

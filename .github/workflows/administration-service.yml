@@ -1,4 +1,4 @@
-name: 🚀 Deploy Backend 🚀 
+name: Administration Service
 
 env:
   AWS_ACCOUNT_ID          : 211125646858
@@ -8,6 +8,7 @@ env:
   ORGANIZATION_NAME       : aguas
   APPLICATION_NAME        : vis
   SERVICE_NAME            : formative-backend
+  CODEBASE_PATH           : apps/backend
   PERFORM_E2E_TESTS       : false
 
 on:
@@ -15,7 +16,7 @@ on:
     branches:
       - main
     paths:
-      - '**'
+      - 'apps/backend/**' # Always replace with CODEBASE_PATH variable
 
 jobs:
   setup-variables:
@@ -33,6 +34,7 @@ jobs:
           echo "ORGANIZATION_NAME       = ${{ env.ORGANIZATION_NAME }}"   >> deployment-vars.env
           echo "APPLICATION_NAME        = ${{ env.APPLICATION_NAME }}"    >> deployment-vars.env
           echo "SERVICE_NAME            = ${{ env.SERVICE_NAME }}"        >> deployment-vars.env
+          echo "CODEBASE_PATH           = ${{ env.CODEBASE_PATH }}"       >> deployment-vars.env
           echo "IMAGE_REPOSITORY        = ${{ env.ORGANIZATION_NAME }}/${{ env.APPLICATION_NAME }}/${{ env.SERVICE_NAME }}" >> deployment-vars.env
           echo "RESOURCE_NAME           = ${{ env.ORGANIZATION_NAME }}-${{ env.APPLICATION_NAME }}-${{ env.SERVICE_NAME }}" >> deployment-vars.env
           echo "TASK_DEFINITION_FAMILY  = ${{ env.ORGANIZATION_NAME }}-${{ env.APPLICATION_NAME }}-${{ env.SERVICE_NAME }}" >> deployment-vars.env
