@@ -1,4 +1,4 @@
-name: Administration Service
+name: Formative Backend Service
 
 env:
   AWS_ACCOUNT_ID          : 211125646858
