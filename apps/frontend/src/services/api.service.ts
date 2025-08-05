@@ -64,8 +64,6 @@ export const getSession = async (sessionId: string): Promise<ISimulationSession>
   return response.json();
 };
 
-// --- LA FUNCIÓN DUPLICADA HA SIDO ELIMINADA ---
-
 interface TurnResponse {
   status: 'in_progress' | 'completed';
   ai_message: IConversationMessage;
@@ -128,32 +126,117 @@ export const evaluateSession = async (sessionId: string): Promise<IFeedbackRepor
   return response.json();
 };
 
+// ✅ FUNCIÓN CORREGIDA: getSessionHistory con parsing de JSON
 export const getSessionHistory = async (userId: string): Promise<ISimulationSession[]> => {
-  const response = await fetch(`${API_BASE_URL}/user/${userId}/history`);
-  if (!response.ok) {
-    console.error("Error al obtener el historial de sesiones.");
+  try {
+    console.log(`📚 Frontend: Obteniendo historial para usuario ${userId}`);
+    
+    const response = await fetch(`${API_BASE_URL}/user/${userId}/history`);
+    if (!response.ok) {
+      console.error("Error al obtener el historial de sesiones.");
+      return [];
+    }
+    
+    const rawHistory = await response.json();
+    console.log(`📥 Frontend: Historial raw recibido - ${rawHistory.length} sesiones`);
+    
+    // ✅ PARSING DE JSON en el frontend para arreglar competencyFeedback
+    const parsedHistory = rawHistory.map((session: any, index: number) => {
+      let competencyFeedback = [];
+      
+      // Verificar si competencyFeedback es un string que necesita parsing
+      if (session.competencyFeedback) {
+        if (typeof session.competencyFeedback === 'string') {
+          try {
+            competencyFeedback = JSON.parse(session.competencyFeedback);
+            console.log(`✅ Sesión ${session.id}: JSON parseado exitosamente - ${competencyFeedback.length} competencias`);
+          } catch (parseError) {
+            console.error(`❌ Error al parsear JSON en sesión ${session.id}:`, parseError);
+            competencyFeedback = [];
+          }
+        } else if (Array.isArray(session.competencyFeedback)) {
+          // Ya es un array, no necesita parsing
+          competencyFeedback = session.competencyFeedback;
+          console.log(`ℹ️ Sesión ${session.id}: competencyFeedback ya es array`);
+        }
+      }
+      
+      return {
+        ...session,
+        competencyFeedback, // ✅ Ahora siempre será un array
+        // Asegurar que otras fechas estén como Date objects
+        startTime: session.startTime ? new Date(session.startTime) : new Date(),
+        endTime: session.endTime ? new Date(session.endTime) : undefined,
+      };
+    });
+    
+    console.log(`✅ Frontend: Historial parseado exitosamente - ${parsedHistory.length} sesiones procesadas`);
+    
+    // Log de verificación para la primera sesión
+    if (parsedHistory.length > 0) {
+      const firstSession = parsedHistory[0];
+      console.log(`🔍 Primera sesión verificación:`, {
+        id: firstSession.id,
+        competencyFeedbackType: typeof firstSession.competencyFeedback,
+        competencyCount: firstSession.competencyFeedback?.length || 0,
+        hasGeneralCommentary: !!firstSession.generalCommentary,
+        recommendationsCount: firstSession.recommendations?.length || 0
+      });
+    }
+    
+    return parsedHistory;
+    
+  } catch (error) {
+    console.error('❌ Frontend: Error en getSessionHistory:', error);
     return [];
   }
-  return response.json();
 };
 
 export const getGrowthPlan = async (userId: string): Promise<IGrowthTask[]> => {
-  const response = await fetch(`${API_BASE_URL}/user/${userId}/growth-plan`);
-  if (!response.ok) {
-    throw new Error('Error al obtener el plan de crecimiento');
+  try {
+    console.log(`📋 Frontend: Obteniendo plan de crecimiento para ${userId}`);
+    const response = await fetch(`${API_BASE_URL}/user/${userId}/growth-plan`);
+    
+    if (!response.ok) {
+      console.error(`❌ Error al obtener plan: ${response.status}`);
+      throw new Error(`Error ${response.status}: ${response.statusText}`);
+    }
+    
+    const tasks = await response.json();
+    console.log(`✅ Frontend: Plan obtenido - ${tasks.length} tareas`);
+    return tasks;
+  } catch (error) {
+    console.error('❌ Frontend: Error en getGrowthPlan:', error);
+    return []; // Devolver array vacío en lugar de lanzar error
   }
-  return response.json();
 };
 
 export const toggleTask = async (taskId: string): Promise<any> => {
-  // Limpiamos el taskId por si viene con el prefijo de la tabla
-  const cleanTaskId = String(taskId).split(':')[1] || taskId;
+  try {
+    // Limpiar el taskId (remover prefijo si existe)
+    let cleanTaskId = taskId;
+    if (typeof taskId === 'string' && taskId.includes(':')) {
+      cleanTaskId = taskId.split(':').pop() || taskId;
+    }
+    
+    console.log(`🔄 Frontend: Toggleando tarea ${cleanTaskId} (original: ${taskId})`);
 
-  const response = await fetch(`${API_BASE_URL}/task/${cleanTaskId}/toggle`, {
-    method: 'POST',
-  });
-  if (!response.ok) {
-    throw new Error('Error al actualizar la tarea');
+    const response = await fetch(`${API_BASE_URL}/task/${cleanTaskId}/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error(`❌ Frontend: Error al toggle tarea:`, errorData);
+      throw new Error(errorData.error || `Error ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log(`✅ Frontend: Tarea actualizada exitosamente`);
+    return result;
+  } catch (error) {
+    console.error('❌ Frontend: Error en toggleTask:', error);
+    throw error;
   }
-  return response.json();
 };

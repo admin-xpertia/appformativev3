@@ -3,17 +3,15 @@ import { CaseSlug, CompetencySlug, CompetencyLevel } from "./enums";
 
 export interface ICase {
   [key: string]: any;
-  // --- INICIO DE LA CORRECCIÓN CLAVE ---
-  id: string; // Cambiamos CaseSlug por string para mayor flexibilidad
-  // --- FIN DE LA CORRECCIÓN CLAVE ---
-  slug: CaseSlug; // Mantenemos el slug con el tipo estricto del enum
+  id: string;
+  slug: CaseSlug;
   title: string;
   currentLevel?: CompetencyLevel;
   attempts?: string;
   progress?: number;
   available?: boolean;
   lastAttempt?: string;
-  status?: 'in_progress' | 'pending'; // ✅ NUEVO CAMPO OPCIONAL
+  status?: 'in_progress' | 'pending';
 }
 
 export interface ILevel {
@@ -32,9 +30,8 @@ export interface ICompetencyProgress {
   level: CompetencyLevel;
 }
 
-// --- INICIO DE LA CORRECCIÓN ---
 export interface ISimulationSession {
-  [key: string]: any; // Añadimos la firma de índice
+  [key: string]: any;
   id: string;
   userId: string;
   case: CaseSlug;
@@ -46,7 +43,6 @@ export interface ISimulationSession {
   finalFeedback?: IFeedbackReport;
   passed: boolean;
 }
-// --- FIN DE LA CORRECCIÓN ---
 
 export interface IConversationMessage {
   sender: 'user' | 'ai';
@@ -54,12 +50,14 @@ export interface IConversationMessage {
   timestamp: Date;
 }
 
+// ✅ INTERFAZ UNIFICADA - Solo una definición
 export interface ICompetencyFeedback {
   competency: CompetencySlug;
   achievedLevel: CompetencyLevel;
   strengths: string[];
   areasForImprovement: string[];
   justification: string;
+  meetsIndicators?: boolean; // ✅ Campo opcional añadido
 }
 
 export interface IFeedbackReport {
@@ -70,17 +68,8 @@ export interface IFeedbackReport {
 
 export interface IProgressionLevel {
   level: CompetencyLevel;
-  description: string; // Descripción de lo que se espera en este nivel
-  indicators: string[]; // Indicadores observables, ej: "Parafrasea al cliente"
-}
-
-export interface ICompetencyFeedback {
-  competency: CompetencySlug;
-  achievedLevel: CompetencyLevel;
-  strengths: string[];
-  areasForImprovement: string[];
-  justification: string;
-  meetsIndicators?: boolean; // ✅ CAMBIO AÑADIDO
+  description: string;
+  indicators: string[];
 }
 
 export interface IGrowthTask {
@@ -92,5 +81,3 @@ export interface IGrowthTask {
   completed: boolean;
   createdAt: Date;
 }
-
-

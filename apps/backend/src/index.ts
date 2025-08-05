@@ -515,15 +515,40 @@ return {
 // NUEVO ENDPOINT: OBTENER PLAN DE CRECIMIENTO
 fastify.get('/api/user/:userId/growth-plan', async (request, reply) => {
   const { userId } = request.params as { userId: string };
-  const tasks = await databaseService.getGrowthPlanForUser(userId);
-  return tasks;
+  console.log(`📋 API: Obteniendo plan de crecimiento para usuario ${userId}`);
+  
+  try {
+    const tasks = await databaseService.getGrowthPlanForUser(userId);
+    console.log(`✅ Plan obtenido: ${tasks.length} tareas`);
+    console.log(`📊 Tareas detalle:`, tasks.map(t => ({
+      id: t.id,
+      description: t.description.substring(0, 50) + '...',
+      completed: t.completed,
+      sourceSessionId: t.sourceSessionId
+    })));
+    return tasks;
+  } catch (error) {
+    console.error(`❌ Error al obtener plan de crecimiento:`, error);
+    return reply.status(500).send({ error: 'Error al obtener el plan de crecimiento' });
+  }
 });
 
 // NUEVO ENDPOINT: MARCAR TAREA COMO COMPLETADA/PENDIENTE
 fastify.post('/api/task/:taskId/toggle', async (request, reply) => {
   const { taskId } = request.params as { taskId: string };
-  const updatedTask = await databaseService.toggleGrowthTask(taskId);
-  return updatedTask;
+  console.log(`🔄 API: Toggleando tarea ${taskId}`);
+  
+  try {
+    const updatedTask = await databaseService.toggleGrowthTask(taskId);
+    console.log(`✅ Tarea actualizada exitosamente:`, {
+      id: updatedTask.id,
+      completed: updatedTask.completed
+    });
+    return updatedTask;
+  } catch (error) {
+    console.error(`❌ Error al actualizar tarea:`, error);
+    return reply.status(500).send({ error: 'Error al actualizar la tarea' });
+  }
 });
 
 // Levantar servidor

@@ -115,7 +115,7 @@ type FeedbackRow = {
   id?: RecordId | string;
   sessionId: RecordId | string;
   generalCommentary: string;
-  competencyFeedback: IFeedbackReport['competencyFeedback'];
+  competencyFeedback: string; // ✅ CORREGIDO: Ahora es string (JSON)
   recommendations: string[];
 };
 
@@ -367,198 +367,52 @@ export async function appendMessage(
   }
 }
 
-// ✅ Nuevo helper para obtener el progreso del usuario
+// =====================================================
+// ✅ FUNCIÓN CORREGIDA: finalizeSession con JSON
+// =====================================================
 export async function finalizeSession(
   sessionId: string,
   feedback: IFeedbackReport,
-  didPass: boolean // Pasamos el veredicto desde el index.ts
+  didPass: boolean
 ): Promise<IFeedbackReport> {
-  logger.info('🚀 Iniciando finalización de sesión', { sessionId });
+  logger.info('🚀 Finalizando sesión con serialización JSON', { sessionId });
 
   try {
     const sessionRecordId = new RecordId('session', sessionId);
-    
-    // 🔍 LOG 1: Verificar datos de entrada
-    logger.debug('📥 DATOS DE ENTRADA - Estado inicial del feedback:', {
+
+    // 🔍 LOG: Verificar datos antes de serialización
+    logger.debug('📥 DATOS ANTES DE SERIALIZACIÓN:', {
       sessionId,
       didPass,
-      generalCommentaryLength: feedback.generalCommentary?.length || 0,
       competencyFeedbackCount: feedback.competencyFeedback?.length || 0,
-      recommendationsCount: feedback.recommendations?.length || 0,
-      competencyFeedbackTypes: feedback.competencyFeedback?.map(c => typeof c) || [],
+      firstCompetency: feedback.competencyFeedback?.[0] || null
     });
 
-    // 🔍 LOG 2: Inspeccionar cada competencia en detalle
-    if (feedback.competencyFeedback && Array.isArray(feedback.competencyFeedback)) {
-      feedback.competencyFeedback.forEach((comp, index) => {
-        logger.debug(`🔬 Competencia [${index}] análisis detallado:`, {
-          index,
-          competency: comp.competency,
-          competencyType: typeof comp.competency,
-          achievedLevel: comp.achievedLevel,
-          achievedLevelType: typeof comp.achievedLevel,
-          strengthsCount: comp.strengths?.length || 0,
-          strengthsType: typeof comp.strengths,
-          areasCount: comp.areasForImprovement?.length || 0,
-          areasType: typeof comp.areasForImprovement,
-          justification: comp.justification ? `${comp.justification.substring(0, 50)}...` : 'undefined',
-          justificationType: typeof comp.justification,
-          meetsIndicators: comp.meetsIndicators,
-          meetsIndicatorsType: typeof comp.meetsIndicators,
-          allKeys: Object.keys(comp),
-          objectIntegrity: Object.keys(comp).length > 0 ? 'OK' : 'EMPTY_OBJECT'
-        });
-
-        // 🚨 Detectar objetos problemáticos antes de guardar
-        if (Object.keys(comp).length === 0) {
-          logger.error(`❌ OBJETO VACÍO DETECTADO en competencia [${index}]`);
-        }
-        if (!comp.competency) {
-          logger.error(`❌ COMPETENCY FALTANTE en índice [${index}]`);
-        }
-        if (!comp.achievedLevel) {
-          logger.error(`❌ ACHIEVED_LEVEL FALTANTE en índice [${index}]`);
-        }
-      });
-    } else {
-      logger.error('❌ competencyFeedback no es un array válido:', {
-        type: typeof feedback.competencyFeedback,
-        value: feedback.competencyFeedback
-      });
-    }
-
-    // --- INICIO DE LA CORRECCIÓN CLAVE ---
-    // 🔧 SERIALIZACIÓN MANUAL: Convertir objetos a formato que SurrealDB pueda manejar
-    logger.info('🔧 Serializando competencyFeedback manualmente...');
+    // --- INICIO DE LA CORRECCIÓN DEFINITIVA ---
+    // Serializamos manualmente el array de objetos a un string JSON.
+    const competencyFeedbackString = JSON.stringify(feedback.competencyFeedback);
     
-    const serializedCompetencyFeedback = feedback.competencyFeedback.map(comp => {
-      // Crear objeto plano explícitamente
-      const cleanCompetency = {
-        competency: String(comp.competency || ''),
-        achievedLevel: String(comp.achievedLevel || ''),
-        strengths: Array.isArray(comp.strengths) ? comp.strengths.map(s => String(s)) : [],
-        areasForImprovement: Array.isArray(comp.areasForImprovement) ? comp.areasForImprovement.map(a => String(a)) : [],
-        justification: String(comp.justification || ''),
-        meetsIndicators: Boolean(comp.meetsIndicators)
-      };
-      
-      logger.debug(`🧹 Competencia serializada [${comp.competency}]:`, {
-        original: Object.keys(comp),
-        serialized: Object.keys(cleanCompetency),
-        competency: cleanCompetency.competency,
-        achievedLevel: cleanCompetency.achievedLevel
-      });
-      
-      return cleanCompetency;
+    logger.debug('🔧 SERIALIZACIÓN JSON:', {
+      originalType: typeof feedback.competencyFeedback,
+      serializedType: typeof competencyFeedbackString,
+      serializedLength: competencyFeedbackString.length,
+      preview: competencyFeedbackString.substring(0, 100) + '...'
     });
+    // --- FIN DE LA CORRECCIÓN DEFINITIVA ---
 
-    logger.info('🔧 Ejecutando db.create() con datos serializados...');
-    
-    const createdFeedbackArray = await db.create('feedback', {
+    await db.create('feedback', {
       sessionId: sessionRecordId,
-      generalCommentary: String(feedback.generalCommentary || ''),
-      competencyFeedback: serializedCompetencyFeedback, // ✅ Usar objetos serializados
-      recommendations: Array.isArray(feedback.recommendations) ? feedback.recommendations.map(r => String(r)) : [],
+      generalCommentary: feedback.generalCommentary,
+      competencyFeedback: competencyFeedbackString, // ✅ Guardamos como string
+      recommendations: feedback.recommendations,
     });
-    
-    const createdFeedback = Array.isArray(createdFeedbackArray) ? createdFeedbackArray[0] : createdFeedbackArray;
-    
-    logger.success('✅ db.create() ejecutado exitosamente', {
-      createdFeedbackId: createdFeedback?.id || 'unknown',
-      createdFeedbackType: typeof createdFeedback,
-      isArray: Array.isArray(createdFeedbackArray)
-    });
-    // --- FIN DE LA CORRECCIÓN CLAVE ---
 
-    // 🔍 VERIFICACIÓN CRÍTICA: Leer inmediatamente lo que se guardó
-    if (createdFeedback?.id) {
-      try {
-        logger.info('🔍 Verificando datos guardados...');
-        
-        const feedbackId = createdFeedback.id;
-        const verifyQuery = `SELECT * FROM ${feedbackId}`;
-        const verificationResponse = await db.query(verifyQuery);
-        const verificationResult = verificationResponse[0] as any[];
-        const savedFeedback = verificationResult?.[0] as any;
-        
-        if (savedFeedback) {
-          logger.debug('📊 VERIFICACIÓN db.create() - Lo que realmente se guardó:', {
-            feedbackId: feedbackId,
-            generalCommentaryOK: !!savedFeedback.generalCommentary,
-            generalCommentaryPreview: savedFeedback.generalCommentary?.substring(0, 50) + '...',
-            competencyFeedbackExists: !!savedFeedback.competencyFeedback,
-            competencyFeedbackIsArray: Array.isArray(savedFeedback.competencyFeedback),
-            competencyFeedbackCount: savedFeedback.competencyFeedback?.length || 0,
-            recommendationsExists: !!savedFeedback.recommendations,
-            recommendationsCount: savedFeedback.recommendations?.length || 0
-          });
-
-          // 🕵️ ANÁLISIS PROFUNDO: Verificar cada competencia guardada
-          if (savedFeedback.competencyFeedback && Array.isArray(savedFeedback.competencyFeedback)) {
-            const savedCompetencies = savedFeedback.competencyFeedback as any[];
-            
-            savedCompetencies.forEach((savedComp: any, index: number) => {
-              logger.debug(`🔬 Competencia guardada [${index}]:`, {
-                index,
-                hasCompetency: !!savedComp.competency,
-                competency: savedComp.competency,
-                hasAchievedLevel: !!savedComp.achievedLevel,
-                achievedLevel: savedComp.achievedLevel,
-                strengthsCount: savedComp.strengths?.length || 0,
-                areasCount: savedComp.areasForImprovement?.length || 0,
-                hasJustification: !!savedComp.justification,
-                meetsIndicators: savedComp.meetsIndicators,
-                objectKeys: Object.keys(savedComp),
-                isEmpty: Object.keys(savedComp).length === 0
-              });
-            });
-
-            // 🚨 DETECTAR PROBLEMAS EN DATOS GUARDADOS
-            const emptyObjects = savedCompetencies.filter((comp: any) => 
-              Object.keys(comp).length === 0 || !comp.competency
-            );
-            
-            if (emptyObjects.length > 0) {
-              logger.error('🚨 PROBLEMA DETECTADO: Objetos vacíos encontrados después de db.create()', {
-                totalCompetencies: savedCompetencies.length,
-                emptyObjectsCount: emptyObjects.length,
-                emptyObjectsDetails: emptyObjects.map((obj, idx) => ({
-                  index: idx,
-                  keys: Object.keys(obj),
-                  content: obj
-                }))
-              });
-            } else {
-              logger.success('🎉 ÉXITO: db.create() guardó todos los datos correctamente!', {
-                competenciesWithData: savedCompetencies.length,
-                sampleCompetency: {
-                  competency: savedCompetencies[0]?.competency,
-                  level: savedCompetencies[0]?.achievedLevel,
-                  strengthsCount: savedCompetencies[0]?.strengths?.length || 0,
-                  areasCount: savedCompetencies[0]?.areasForImprovement?.length || 0
-                }
-              });
-            }
-          } else {
-            logger.error('❌ competencyFeedback no se guardó como array válido:', {
-              type: typeof savedFeedback.competencyFeedback,
-              value: savedFeedback.competencyFeedback
-            });
-          }
-        } else {
-          logger.error('❌ No se pudo obtener el feedback guardado para verificación');
-        }
-      } catch (verifyError) {
-        logger.error('❌ Error en verificación después de db.create():', verifyError);
-      }
-    }
-
-    logger.success(`✅ Feedback para la sesión ${sessionId} guardado exitosamente.`);
+    logger.success(`✅ Feedback para la sesión ${sessionId} guardado como JSON string.`);
 
     // Actualizamos la sesión para marcarla como completada
     await db.merge(sessionRecordId, {
       status: 'completed',
-      endTime: new Date(), // ✅ CORRECCIÓN: Date object, no string ISO
+      endTime: new Date(), // ✅ Date object, no string ISO
       passed: didPass,
     });
 
@@ -568,22 +422,68 @@ export async function finalizeSession(
   } catch (error) {
     logger.error(`❌ Error crítico al finalizar sesión ${sessionId}:`, {
       error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-      sessionId,
-      feedbackDataSnapshot: {
-        hasGeneralCommentary: !!feedback?.generalCommentary,
-        competencyCount: feedback?.competencyFeedback?.length || 0,
-        recommendationsCount: feedback?.recommendations?.length || 0
-      }
+      sessionId
     });
     throw error;
+  }
+}
+
+// =====================================================
+// ✅ NUEVA FUNCIÓN: getFeedback para leer el JSON string
+// =====================================================
+export async function getFeedback(sessionId: string): Promise<IFeedbackReport | null> {
+  try {
+    logger.info('🔍 Obteniendo feedback para sesión', { sessionId });
+    
+    const query = 'SELECT * FROM feedback WHERE sessionId = $id LIMIT 1;';
+    const result = await db.query<[FeedbackRow[]]>(query, { id: new RecordId('session', sessionId) });
+    const response = result[0] || [];
+    const rawFeedback = response[0] as any;
+
+    if (!rawFeedback) {
+      logger.info('ℹ️ No se encontró feedback para la sesión', { sessionId });
+      return null;
+    }
+
+    // --- INICIO DE LA CORRECCIÓN CLAVE ---
+    // Hacemos JSON.parse para reconstruir el array de objetos desde el string.
+    let competencyFeedback = [];
+    try {
+      competencyFeedback = JSON.parse(rawFeedback.competencyFeedback || '[]');
+      logger.debug('✅ JSON parseado exitosamente:', {
+        sessionId,
+        parsedCount: competencyFeedback.length,
+        firstItem: competencyFeedback[0] || null
+      });
+    } catch (parseError) {
+      logger.error('❌ Error al parsear competencyFeedback JSON:', parseError);
+      competencyFeedback = [];
+    }
+    // --- FIN DE LA CORRECCIÓN CLAVE ---
+
+    const feedback: IFeedbackReport = {
+      generalCommentary: rawFeedback.generalCommentary || '',
+      competencyFeedback: competencyFeedback,
+      recommendations: Array.isArray(rawFeedback.recommendations) ? rawFeedback.recommendations : []
+    };
+
+    logger.success('✅ Feedback reconstruido desde JSON:', {
+      sessionId,
+      hasGeneralCommentary: !!feedback.generalCommentary,
+      competencyCount: feedback.competencyFeedback.length,
+      recommendationsCount: feedback.recommendations.length
+    });
+
+    return feedback;
+  } catch (error) {
+    logger.error(`❌ Error al obtener feedback para sesión ${sessionId}:`, error);
+    return null;
   }
 }
 
 /**
  * Obtiene todos los casos.
  */
-
 export async function getCasesForUser(userId: string): Promise<ICase[]> {
   try {
     const userRecordId = new RecordId('user', userId);
@@ -665,14 +565,13 @@ export async function getActiveSessionsForUser(userId: string): Promise<ISimulat
   }
 }
 
+
 export const getSessionHistoryForUser = async (userId: string): Promise<any[]> => {
   try {
     logger.info(`Buscando historial de sesiones con feedback para el usuario ${userId}`);
     
-    // --- INICIO DE LA CORRECCIÓN CLAVE ---
-    // Usamos FETCH feedback para que SurrealDB nos traiga el informe de feedback completo
-    // que está enlazado a cada sesión.
-    const query = `
+    // ✅ QUERY 1: Obtener sesiones completadas
+    const sessionQuery = `
       SELECT * FROM session 
       WHERE userId = $userId 
       AND (
@@ -682,12 +581,10 @@ export const getSessionHistoryForUser = async (userId: string): Promise<any[]> =
         status = 'evaluated' OR
         endTime IS NOT NULL
       )
-      ORDER BY endTime DESC, startTime DESC
-      FETCH feedback;
+      ORDER BY endTime DESC, startTime DESC;
     `;
-    // --- FIN DE LA CORRECCIÓN CLAVE ---
     
-    const [completedSessions] = await db.query<[SessionRow[]]>(query, { userId });
+    const [completedSessions] = await db.query<[any[]]>(sessionQuery, { userId });
 
     logger.info(`Encontradas ${completedSessions?.length || 0} sesiones completadas para el usuario ${userId}`);
     
@@ -696,43 +593,93 @@ export const getSessionHistoryForUser = async (userId: string): Promise<any[]> =
       return [];
     }
 
-    // --- INICIO DEL MAPEO MEJORADO ---
-    // El resultado ya viene enriquecido con feedback, solo lo limpiamos para el frontend
+    // ✅ QUERY 2: Obtener todo el feedback de una vez
+    const feedbackQuery = `SELECT * FROM feedback;`;
+    const [allFeedback] = await db.query<[any[]]>(feedbackQuery);
+    
+    logger.debug(`Feedback total en BD: ${allFeedback?.length || 0} registros`);
+
     const formattedHistory = completedSessions.map((session: any) => {
-      // Limpiar el ID de la sesión
       const sessionId = (typeof session.id === 'object' && 'id' in session.id) 
         ? String((session.id as RecordId).id) 
         : String(session.id);
 
-      // El feedback ahora viene como un array dentro de la sesión gracias a FETCH
-      const feedback = session.feedback && session.feedback[0] ? session.feedback[0] : {};
+      // ✅ Buscar el feedback correspondiente a esta sesión
+      const sessionFeedback = allFeedback?.find((feedback: any) => {
+        // Manejar diferentes formatos de sessionId en feedback
+        let feedbackSessionId = '';
+        if (feedback.sessionId) {
+          if (typeof feedback.sessionId === 'object' && 'id' in feedback.sessionId) {
+            feedbackSessionId = String((feedback.sessionId as RecordId).id);
+          } else {
+            feedbackSessionId = String(feedback.sessionId).replace('session:', '');
+          }
+        }
+        
+        const matches = feedbackSessionId === sessionId;
+        if (matches) {
+          logger.debug(`✅ Feedback encontrado para sesión ${sessionId}`);
+        }
+        return matches;
+      });
 
-      return {
+      // --- INICIO DE LA CORRECCIÓN JSON ---
+      // Parseamos el competencyFeedback si existe como string JSON
+      let competencyFeedback = [];
+      if (sessionFeedback?.competencyFeedback) {
+        try {
+          if (typeof sessionFeedback.competencyFeedback === 'string') {
+            competencyFeedback = JSON.parse(sessionFeedback.competencyFeedback);
+            logger.debug(`✅ JSON parseado para sesión ${sessionId}:`, { 
+              competencyCount: competencyFeedback.length 
+            });
+          } else {
+            competencyFeedback = sessionFeedback.competencyFeedback;
+          }
+        } catch (parseError) {
+          logger.error(`❌ Error al parsear competencyFeedback para sesión ${sessionId}:`, parseError);
+          competencyFeedback = [];
+        }
+      } else {
+        logger.debug(`⚠️ No se encontró feedback para sesión ${sessionId}`);
+      }
+      // --- FIN DE LA CORRECCIÓN JSON ---
+
+      const formattedSession = {
         id: sessionId,
         userId: String(session.userId),
         case: session.caseSlug,
         level: session.level,
         status: session.status || 'completed',
-        conversationHistory: [], // Se puede cargar por separado si es necesario
+        conversationHistory: [],
         startTime: parseDate(session.startTime),
         endTime: session.endTime ? parseDate(session.endTime) : undefined,
         attemptNumber: session.attemptNumber || 1,
         passed: session.passed || false,
-        // --- COMBINAMOS LOS DATOS DEL FEEDBACK ---
-        generalCommentary: feedback.generalCommentary || '',
-        competencyFeedback: feedback.competencyFeedback || [],
-        recommendations: feedback.recommendations || []
+        // --- DATOS DEL FEEDBACK CORREGIDOS ---
+        generalCommentary: sessionFeedback?.generalCommentary || '',
+        competencyFeedback: competencyFeedback, // ✅ Array parseado desde JSON
+        recommendations: Array.isArray(sessionFeedback?.recommendations) ? sessionFeedback.recommendations : []
       };
-    });
-    // --- FIN DEL MAPEO MEJORADO ---
 
-    logger.success(`Historial de sesiones con feedback formateado para usuario ${userId}`, { 
+      // ✅ Log de verificación para cada sesión
+      logger.debug(`📊 Sesión ${sessionId} procesada:`, {
+        hasGeneralCommentary: !!formattedSession.generalCommentary,
+        competencyCount: formattedSession.competencyFeedback.length,
+        recommendationsCount: formattedSession.recommendations.length,
+        hasFeedback: !!(formattedSession.generalCommentary || formattedSession.competencyFeedback.length || formattedSession.recommendations.length)
+      });
+
+      return formattedSession;
+    });
+
+    logger.success(`Historial de sesiones con feedback JSON formateado para usuario ${userId}`, { 
       count: formattedHistory.length,
       sessions: formattedHistory.map(s => ({ 
         id: s.id, 
         case: s.case, 
         level: s.level,
-        status: s.status,
+        competencyCount: s.competencyFeedback?.length || 0,
         hasFeedback: !!(s.generalCommentary || s.competencyFeedback?.length || s.recommendations?.length)
       }))
     });
@@ -741,7 +688,7 @@ export const getSessionHistoryForUser = async (userId: string): Promise<any[]> =
     
   } catch (error) {
     logger.error(`Error al obtener historial de sesiones para usuario ${userId}`, error);
-    return []; // ✅ Devolver array vacío en lugar de lanzar error
+    return [];
   }
 };
 
