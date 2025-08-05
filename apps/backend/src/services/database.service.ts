@@ -732,9 +732,18 @@ export async function getGrowthPlanForUser(userId: string) {
  * Cambia el estado de una tarea (completada / no completada).
  */
 export async function toggleGrowthTask(taskId: string) {
-  const taskRecord = await db.select(`growth_tasks:${taskId}`);
-  const isCompleted = (taskRecord as any)?.completed || false;
-  const [updatedTask] = await db.merge(`growth_tasks:${taskId}`, { completed: !isCompleted });
+  const taskRecordId = new RecordId('growth_tasks', taskId);
+
+  const taskRecord = await db.select(taskRecordId);
+
+  if (!taskRecord) {
+    console.warn(`No se encontró la tarea con ID growth_tasks:${taskId}`);
+    throw new Error(`Tarea no encontrada: ${taskId}`);
+  }
+
+  const isCompleted = taskRecord.completed || false;
+
+  const updatedTask = await db.merge(taskRecordId, { completed: !isCompleted });
   return updatedTask;
 }
 

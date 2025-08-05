@@ -1,6 +1,7 @@
 # Dependencies
 /node_modules
 apps/**/node_modules
+packages/database/node_modules
 
 # Build outputs
 /apps/frontend/.next/
