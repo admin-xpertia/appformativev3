@@ -1,0 +1,63 @@
+name: 🚀 Deploy Backend 🚀 
+
+env:
+  AWS_ACCOUNT_ID          : 211125646858
+  AWS_ACCOUNT_REGION      : us-east-2
+  AWS_LOGS_REGION         : us-east-2
+  CLUSTER_NAME            : xpertia
+  ORGANIZATION_NAME       : aguas
+  APPLICATION_NAME        : vis
+  SERVICE_NAME            : formative-backend
+  PERFORM_E2E_TESTS       : false
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**'
+
+jobs:
+  setup-variables:
+    runs-on: ubuntu-latest
+    outputs:
+      RUNNER_ID : ${{ steps.runner-id.outputs.RUNNER_ID }} # Needed so this runner's artifacts are shareable
+      PERFORM_E2E_TESTS : ${{ steps.output-variables.outputs.PERFORM_E2E_TESTS }}
+    steps:
+      - name: Set environment variables
+        run: |
+          echo "AWS_ACCOUNT_ID          = ${{ env.AWS_ACCOUNT_ID }}"      >> deployment-vars.env
+          echo "AWS_ACCOUNT_REGION      = ${{ env.AWS_ACCOUNT_REGION }}"  >> deployment-vars.env
+          echo "AWS_LOGS_REGION         = ${{ env.AWS_LOGS_REGION }}"     >> deployment-vars.env
+          echo "CLUSTER_NAME            = ${{ env.CLUSTER_NAME }}"        >> deployment-vars.env
+          echo "ORGANIZATION_NAME       = ${{ env.ORGANIZATION_NAME }}"   >> deployment-vars.env
+          echo "APPLICATION_NAME        = ${{ env.APPLICATION_NAME }}"    >> deployment-vars.env
+          echo "SERVICE_NAME            = ${{ env.SERVICE_NAME }}"        >> deployment-vars.env
+          echo "IMAGE_REPOSITORY        = ${{ env.ORGANIZATION_NAME }}/${{ env.APPLICATION_NAME }}/${{ env.SERVICE_NAME }}" >> deployment-vars.env
+          echo "RESOURCE_NAME           = ${{ env.ORGANIZATION_NAME }}-${{ env.APPLICATION_NAME }}-${{ env.SERVICE_NAME }}" >> deployment-vars.env
+          echo "TASK_DEFINITION_FAMILY  = ${{ env.ORGANIZATION_NAME }}-${{ env.APPLICATION_NAME }}-${{ env.SERVICE_NAME }}" >> deployment-vars.env
+          sed -i 's|[ \t]||g' deployment-vars.env
+
+      - name: Upload environment variables file
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-vars
+          path: deployment-vars.env
+
+      - name: Get runner ID
+        id: runner-id
+        run: echo "RUNNER_ID=${{ github.run_id }}" >> $GITHUB_OUTPUT
+
+      # Bootstraps the service output variables
+      - name: Setup job conditional variables
+        id: output-variables
+        run: |
+          echo "PERFORM_E2E_TESTS=${{ env.PERFORM_E2E_TESTS }}" >> $GITHUB_OUTPUT
+
+  call-reusable:
+    needs: setup-variables
+    uses: ./.github/workflows/build-and-push.yml
+    secrets: inherit
+    with:
+      PERFORM_E2E_TESTS: ${{ needs.setup-variables.outputs.PERFORM_E2E_TESTS }}
+      VARIABLES_RUNNER_ID: ${{ needs.setup-variables.outputs.RUNNER_ID }}

@@ -1,0 +1,96 @@
+name: Build And Push Image Reusable Workflow
+
+on:
+  workflow_call:
+    inputs:
+      VARIABLES_RUNNER_ID:
+        required: true
+        type: string
+      PERFORM_E2E_TESTS:
+        required: true
+        type: string
+
+# Permission can be added at job level or workflow level    
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG : ${{ github.sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download environment variables file
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-vars
+          run-id: ${{ inputs.VARIABLES_RUNNER_ID }}
+          github-token: ${{ secrets.GH_PAT }}
+
+      - name: Load environment variables
+        id: load-env-vars
+        run: |
+          cat deployment-vars.env
+          cat deployment-vars.env | xargs -I {} echo "{}" >> $GITHUB_ENV
+          cat deployment-vars.env | xargs -I {} echo "{}" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::211125646858:role/GitHubAction-AssumeRoleWithAction
+          role-session-name: GitHub_to_AWS_via_FederatedOIDC
+          aws-region: ${{ steps.load-env-vars.outputs.AWS_ACCOUNT_REGION }}
+
+      # Hello from AWS: WhoAmI
+      - name: Sts GetCallerIdentity
+        run: |
+          aws sts get-caller-identity
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Load image registry environment variable
+        env:
+          IMAGE_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          echo "IMAGE_REGISTRY=$IMAGE_REGISTRY" >> $GITHUB_ENV
+
+      - name: Build and push production image
+        id: build-production-image
+        run: |
+          docker build -t $IMAGE_REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG -f ./build/Dockerfile .
+          docker push $IMAGE_REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+            python-version: '3.10'
+
+      - name: Replace placeholders in task definition template
+        run: |
+          cp .github/scripts/task_definition.json.template task_definition.json
+          python .github/scripts/convert_env_to_json.py ./deployment/variables/production.env production.env.json
+          python .github/scripts/replace_with_file_contents.py task_definition.json production.env.json
+          python .github/scripts/replace_with_env_variables.py task_definition.json ./deployment/variables/task_parameters.env
+          python .github/scripts/replace_with_env_variables.py task_definition.json deployment-vars.env
+          sed -i "s|IMAGE_REGISTRY|$IMAGE_REGISTRY|g" task_definition.json
+          sed -i "s|IMAGE_TAG|$IMAGE_TAG|g" task_definition.json
+
+      - name: Print Files
+        run: |
+          cat ./deployment/variables/task_parameters.env
+          cat task_definition.json
+
+      - name: Register new task definition
+        run: |
+          aws ecs register-task-definition --cli-input-json file://task_definition.json
+
+      - name: Update ECS service
+        run: |
+          aws ecs update-service --cluster $CLUSTER_NAME --service $RESOURCE_NAME --task-definition $RESOURCE_NAME
